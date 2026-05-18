@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+backend/venv/
+backend/.env
+
+# Database and local runtime files
+backend/*.db
+backend/*.sqlite
+backend/nul
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local agent files
+.agents/
+skills-lock.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
