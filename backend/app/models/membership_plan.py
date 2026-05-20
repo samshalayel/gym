@@ -9,5 +9,6 @@ class MembershipPlan(Base):
     name = Column(String(100), nullable=False)
     duration_months = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
+    session_count = Column(Integer, nullable=True)
     description = Column(Text)
     created_at = Column(DateTime, server_default=func.now())

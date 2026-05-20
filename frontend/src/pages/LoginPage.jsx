@@ -6,7 +6,7 @@ import { useI18n } from '../context/I18nContext'
 import { useToast } from '../context/ToastContext'
 
 export default function LoginPage() {
-  const [form, setForm] = useState({ username: 'admin', password: 'admin123' })
+  const [form, setForm] = useState({ username: '', password: '' })
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const { t, locale } = useI18n()

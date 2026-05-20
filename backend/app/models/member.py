@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Enum, DateTime, func
+from sqlalchemy import Column, Date, Integer, String, Enum, DateTime, Text, func
 from app.database import Base
 import enum
 
@@ -19,10 +19,12 @@ class Member(Base):
     email = Column(String(100), unique=True, nullable=False)
     gender = Column(String(10))
     age = Column(Integer)
+    birth_date = Column(Date)
     address = Column(String(255))
     emergency_contact = Column(String(100))
     emergency_phone = Column(String(20))
     status = Column(String(20), default=MemberStatus.active.value)
     photo = Column(String(255))
+    notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

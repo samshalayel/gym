@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
@@ -22,10 +23,11 @@ def list_members(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     search: Optional[str] = None,
+    status: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    members = get_members(db, skip=skip, limit=limit, search=search)
-    total_count = get_member_count(db, search=search)
+    members = get_members(db, skip=skip, limit=limit, search=search, status=status)
+    total_count = get_member_count(db, search=search, status=status)
     member_ids_with_access = set(
         row[0]
         for row in db.query(User.member_id)
@@ -102,6 +104,15 @@ def update_member_endpoint(
 
 @router.delete("/{member_id}")
 def delete_member_endpoint(member_id: int, db: Session = Depends(get_db)):
-    if not delete_member(db, member_id):
-        raise HTTPException(status_code=404, detail="Member not found")
-    return {"message": "Member deleted successfully"}
+    try:
+        result = delete_member(db, member_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="Member not found")
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="Member has linked records and could not be deleted",
+        )
+    if result == "archived":
+        return {"message": "Member archived. Financial history was kept.", "action": "archived"}
+    return {"message": "Member deleted successfully", "action": "deleted"}

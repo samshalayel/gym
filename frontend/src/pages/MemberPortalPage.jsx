@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../context/I18nContext'
+import { formatCurrency } from '../utils/currency'
+import { memberStatusLabel, paymentStatusLabel } from '../utils/displayLabels'
 import { useToast } from '../context/ToastContext'
 import api from '../api/axios'
 
@@ -29,7 +31,7 @@ export default function MemberPortalPage() {
       const res = await api.get('/member-portal/me')
       setData(res.data)
     } catch {
-      toast('Error loading portal data', 'error')
+      toast(isRtl ? 'تعذر تحميل بيانات العضو' : 'Error loading portal data', 'error')
     } finally {
       setLoading(false)
     }
@@ -97,7 +99,7 @@ export default function MemberPortalPage() {
             <h1 style={s.greeting}>{isRtl ? `مرحباً، ${member.name}` : `Welcome, ${member.name}`}</h1>
             <div style={s.statusRow}>
               <span style={{ ...s.statusDot, background: member.status === 'active' ? '#2ecc71' : '#e74c3c' }} />
-              <span style={s.statusText}>{t(`members.status${member.status.charAt(0).toUpperCase() + member.status.slice(1)}`, member.status)}</span>
+              <span style={s.statusText}>{memberStatusLabel(member.status, locale)}</span>
               <span style={s.separator}>|</span>
               <span style={{ color: '#888', fontSize: 13 }}>{member.email}</span>
               <span style={s.separator}>|</span>
@@ -114,7 +116,7 @@ export default function MemberPortalPage() {
         </div>
         <div style={{ ...s.statCard, borderLeft: '4px solid #2ecc71' }}>
           <span style={s.statNum}>{activeSubs.length}</span>
-          <span style={s.statLabel}>{isRtl ? 'اشتراكات نشطة' : 'Active'}</span>
+          <span style={s.statLabel}>{isRtl ? 'اشتراكات نشطة' : 'Active subscriptions'}</span>
         </div>
         <div style={{ ...s.statCard, borderLeft: '4px solid #f39c12' }}>
           <span style={s.statNum}>{appointments.length}</span>
@@ -160,7 +162,7 @@ export default function MemberPortalPage() {
                   <div style={s.subDates}>
                     <span>{activeSubs[0].start_date} → {activeSubs[0].end_date}</span>
                     <span style={{ color: daysRemaining(activeSubs[0].end_date) <= 7 ? '#e74c3c' : '#2ecc71', fontWeight: 600 }}>
-                      {daysRemaining(activeSubs[0].end_date)}d {isRtl ? 'متبقي' : 'remaining'}
+                      {isRtl ? `${daysRemaining(activeSubs[0].end_date)} يوم متبقي` : `${daysRemaining(activeSubs[0].end_date)}d remaining`}
                     </span>
                   </div>
                 </div>
@@ -227,13 +229,13 @@ export default function MemberPortalPage() {
                 <div style={s.subHeader}>
                   <span style={s.subPlan}>#{s.plan_id}</span>
                   <span style={{ ...s.badge, background: isActive(s.end_date) ? 'rgba(46,204,113,0.15)' : 'rgba(231,76,60,0.15)', color: isActive(s.end_date) ? '#2ecc71' : '#e74c3c' }}>
-                    {isActive(s.end_date) ? '● Active' : '○ Expired'}
+                    {isActive(s.end_date) ? `● ${t('common.active')}` : `○ ${t('members.statusExpired')}`}
                   </span>
                 </div>
                 <div style={s.subDates}>{s.start_date} → {s.end_date}</div>
                 <div style={s.subMeta}>
-                  <span>${s.amount_paid}</span>
-                  <span style={{ color: s.payment_status === 'paid' ? '#2ecc71' : '#e74c3c' }}>{s.payment_status}</span>
+                  <span>{formatCurrency(s.amount_paid)}</span>
+                  <span style={{ color: s.payment_status === 'paid' ? '#2ecc71' : '#e74c3c' }}>{paymentStatusLabel(s.payment_status, locale)}</span>
                 </div>
                 {s.notes && <div style={s.cardDesc}>📝 {s.notes}</div>}
               </div>

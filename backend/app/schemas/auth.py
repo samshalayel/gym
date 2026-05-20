@@ -26,6 +26,11 @@ class UserCreate(BaseModel):
     role: Optional[str] = "admin"
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class UserResponse(BaseModel):
     id: int
     username: str

@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "gym-management-secret-key-2024"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    TIMEZONE: str = "Asia/Hebron"
 
     class Config:
         env_file = ".env"

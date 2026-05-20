@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gym Management System</title>
+  <title>Silver GYM</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💪</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -57,6 +57,19 @@
       line-height: 1.1;
     }
     input, select, button, textarea { font-family: var(--font-body); }
+    select {
+      background-color: #071426 !important;
+      color: #f4f7ff !important;
+      color-scheme: dark;
+    }
+    option, optgroup {
+      background-color: #071426;
+      color: #f4f7ff;
+    }
+    option:checked, option:hover {
+      background-color: #0d63ce;
+      color: #ffffff;
+    }
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 2px; }

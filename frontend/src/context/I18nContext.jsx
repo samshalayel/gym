@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import ar from '../translations/ar'
 import en from '../translations/en'
 
@@ -7,7 +7,12 @@ const I18nContext = createContext()
 
 export function I18nProvider({ children }) {
   const saved = localStorage.getItem('locale')
-  const [locale, setLocale] = useState(saved || 'en')
+  const [locale, setLocale] = useState(saved || 'ar')
+
+  useEffect(() => {
+    document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr'
+    document.documentElement.lang = locale
+  }, [locale])
 
   const changeLocale = (l) => {
     setLocale(l)
@@ -16,13 +21,13 @@ export function I18nProvider({ children }) {
     document.documentElement.lang = l
   }
 
-  const t = (key) => {
+  const t = (key, fallback) => {
     const keys = key.split('.')
     let val = translations[locale]
     for (const k of keys) {
       val = val?.[k]
     }
-    return val || key
+    return val || fallback || key
   }
 
   return (

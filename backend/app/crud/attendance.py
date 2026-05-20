@@ -1,11 +1,24 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.attendance import Attendance
 from app.models.member import Member
 from app.schemas.attendance import AttendanceCreate
+
+
+def local_now():
+    try:
+        return datetime.now(ZoneInfo(settings.TIMEZONE)).replace(tzinfo=None)
+    except ZoneInfoNotFoundError:
+        return datetime.now()
+
+
+def local_today():
+    return local_now().date()
 
 
 def get_attendance(
@@ -35,7 +48,7 @@ def get_attendance(
 
 
 def get_today_attendance_for_member(db: Session, member_id: int):
-    today = date.today().isoformat()
+    today = local_today().isoformat()
     return (
         db.query(Attendance)
         .filter(
@@ -47,7 +60,7 @@ def get_today_attendance_for_member(db: Session, member_id: int):
 
 
 def create_attendance(db: Session, data: AttendanceCreate):
-    attendance = Attendance(**data.model_dump())
+    attendance = Attendance(**data.model_dump(), checked_in_at=local_now())
     db.add(attendance)
     db.commit()
     db.refresh(attendance)

@@ -3,6 +3,7 @@ import { getPlans, createPlan, updatePlan, deletePlan } from '../api/plans'
 import { useI18n } from '../context/I18nContext'
 import { useToast } from '../context/ToastContext'
 import { showConfirm } from '../components/SweetAlert'
+import { formatCurrency } from '../utils/currency'
 
 export default function PlansPage() {
   const [plans, setPlans] = useState([])
@@ -10,7 +11,7 @@ export default function PlansPage() {
   const [editId, setEditId] = useState(null)
   const { t } = useI18n()
   const { toast } = useToast()
-  const [form, setForm] = useState({ name: '', duration_months: 1, price: '', description: '' })
+  const [form, setForm] = useState({ name: '', duration_months: 1, price: '', session_count: '', description: '' })
 
   useEffect(() => { load() }, [])
 
@@ -18,20 +19,20 @@ export default function PlansPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    const data = { ...form, duration_months: parseInt(form.duration_months), price: parseFloat(form.price) }
+    const data = { ...form, duration_months: parseInt(form.duration_months), price: parseFloat(form.price), session_count: form.session_count ? parseInt(form.session_count) : null }
     try {
       if (editId) { await updatePlan(editId, data); toast(t('plans.updated'), 'success') }
       else { await createPlan(data); toast(t('plans.created'), 'success') }
-      setShowForm(false); setEditId(null); setForm({ name: '', duration_months: 1, price: '', description: '' }); load()
+      setShowForm(false); setEditId(null); setForm({ name: '', duration_months: 1, price: '', session_count: '', description: '' }); load()
     } catch { toast('Error saving plan', 'error') }
   }
 
-  const handleEdit = (p) => { setForm({ name: p.name, duration_months: p.duration_months, price: p.price, description: p.description || '' }); setEditId(p.id); setShowForm(true) }
+  const handleEdit = (p) => { setForm({ name: p.name, duration_months: p.duration_months, price: p.price, session_count: p.session_count || '', description: p.description || '' }); setEditId(p.id); setShowForm(true) }
   const handleDelete = async (id) => { if (await showConfirm(t('plans.deleteConfirm'), '', t('common.delete'), t('common.cancel'))) { try { await deletePlan(id); toast(t('plans.deleted'), 'success'); load() } catch { toast('Error deleting plan', 'error') } } }
 
   return (
     <div>
-      <div style={s.header}><h1 style={s.title}>{t('plans.title')}</h1><button style={s.btnPrimary} onClick={() => { setShowForm(!showForm); setEditId(null); setForm({ name: '', duration_months: 1, price: '', description: '' }) }}>{showForm ? `✕ ${t('common.cancel')}` : `+ ${t('plans.add')}`}</button></div>
+      <div style={s.header}><h1 style={s.title}>{t('plans.title')}</h1><button style={s.btnPrimary} onClick={() => { setShowForm(!showForm); setEditId(null); setForm({ name: '', duration_months: 1, price: '', session_count: '', description: '' }) }}>{showForm ? `✕ ${t('common.cancel')}` : `+ ${t('plans.add')}`}</button></div>
       {showForm && (
         <form onSubmit={handleSubmit} style={s.form}>
           <div style={s.formGrid}>
@@ -40,6 +41,7 @@ export default function PlansPage() {
               <option value={1}>{t('plans.monthly')}</option><option value={3}>{t('plans.quarterly')}</option><option value={12}>{t('plans.yearly')}</option>
             </select>
             <input style={s.input} placeholder={`${t('plans.price')}*`} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} type="number" step="0.01" required />
+            <input style={s.input} placeholder={t('plans.sessionCount')} value={form.session_count} onChange={(e) => setForm({ ...form, session_count: e.target.value })} type="number" min="1" />
             <input style={s.input} placeholder={t('plans.description')} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
           <button type="submit" style={s.btnSuccess}>{editId ? t('common.update') : t('common.create')}</button>
@@ -47,10 +49,10 @@ export default function PlansPage() {
       )}
       <div style={s.tableWrap}>
         <table style={s.table}>
-          <thead><tr><th style={s.cell}>{t('plans.name')}</th><th style={s.cell}>{t('plans.duration')}</th><th style={s.cell}>{t('plans.price')}</th><th style={s.cell}>{t('plans.description')}</th><th style={s.cell}>{t('common.actions')}</th></tr></thead>
+          <thead><tr><th style={s.cell}>{t('plans.name')}</th><th style={s.cell}>{t('plans.duration')}</th><th style={s.cell}>{t('plans.price')}</th><th style={s.cell}>{t('plans.sessionCount')}</th><th style={s.cell}>{t('plans.description')}</th><th style={s.cell}>{t('common.actions')}</th></tr></thead>
           <tbody>{plans.map(p => (
             <tr key={p.id}>
-              <td style={s.cell}>{p.name}</td><td style={s.cell}>{p.duration_months} {p.duration_months > 1 ? t('plans.months') : t('plans.month')}</td><td style={{ ...s.cell, color: '#2ecc71', fontWeight: 600 }}>${p.price.toFixed(2)}</td><td style={{ ...s.cell, color: '#888' }}>{p.description}</td>
+              <td style={s.cell}>{p.name}</td><td style={s.cell}>{p.duration_months} {p.duration_months > 1 ? t('plans.months') : t('plans.month')}</td><td style={{ ...s.cell, color: '#2ecc71', fontWeight: 600 }}>{formatCurrency(p.price)}</td><td style={s.cell}>{p.session_count || t('plans.unlimited')}</td><td style={{ ...s.cell, color: '#888' }}>{p.description}</td>
               <td style={s.cell}><div style={s.btnGroup}><button style={s.btnEdit} onClick={() => handleEdit(p)}>{t('common.edit')}</button><button style={s.btnDel} onClick={() => handleDelete(p.id)}>{t('common.delete')}</button></div></td>
             </tr>
           ))}</tbody>

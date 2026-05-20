@@ -92,7 +92,7 @@ def seed_data(db: Session):
         ),
         Offer(
             name="عرض رأس السنة",
-            description="$50 خصم على الباقات السنوية",
+            description="₪50 خصم على الباقات السنوية",
             discount_fixed=50,
             start_date=date.today(),
             end_date=date.today() + timedelta(days=90),

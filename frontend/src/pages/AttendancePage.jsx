@@ -9,8 +9,7 @@ import {
   UserCheckIcon,
   XIcon,
 } from 'lucide-react'
-import { createAttendance, getAttendance } from '../api/attendance'
-import { getMembers } from '../api/members'
+import { createAttendance, getAttendance, getEligibleAttendanceMembers } from '../api/attendance'
 import { useI18n } from '../context/I18nContext'
 import { useToast } from '../context/ToastContext'
 
@@ -33,12 +32,13 @@ export default function AttendancePage() {
   const [search, setSearch] = useState('')
   const [recordSearch, setRecordSearch] = useState('')
   const [selectedId, setSelectedId] = useState('')
+  const [durationHours, setDurationHours] = useState('1')
   const [note, setNote] = useState('')
   const [attendanceDate, setAttendanceDate] = useState(todayValue())
   const [totalCount, setTotalCount] = useState(0)
 
   const loadMembers = useCallback(async () => {
-    const res = await getMembers({ limit: 500, search: search || undefined })
+    const res = await getEligibleAttendanceMembers({ search: search || undefined })
     setMembers(res.data.items || [])
   }, [search])
 
@@ -83,15 +83,18 @@ export default function AttendancePage() {
     }
     setSaving(true)
     try {
-      await createAttendance({ member_id: Number(memberId), note: note || null })
+      await createAttendance({ member_id: Number(memberId), duration_hours: Number(durationHours || 1), note: note || null })
       toast(t('attendance.saved'), 'success')
       setSelectedId('')
+      setDurationHours('1')
       setNote('')
       await loadAttendance()
       await loadMembers()
     } catch (error) {
       if (error.response?.status === 409) toast(t('attendance.alreadyToday'), 'info')
-      else toast(t('attendance.saveError'), 'error')
+      else if (error.response?.status === 402) toast(t('attendance.notPaid'), 'error')
+      else if (error.response?.status === 403) toast(t('attendance.noActiveSubscription'), 'error')
+      else toast(error.response?.data?.detail || t('attendance.saveError'), 'error')
     } finally {
       setSaving(false)
     }
@@ -154,10 +157,13 @@ export default function AttendancePage() {
                   key={member.id}
                   type="button"
                   onClick={() => setSelectedId(member.id)}
+                  onDoubleClick={() => !checked && !saving && handleCheckIn(member.id)}
                   style={{
                     ...s.memberRow,
                     ...(selected ? s.memberRowSelected : {}),
+                    ...(checked ? s.memberRowChecked : {}),
                   }}
+                  title={checked ? t('attendance.checked') : t('attendance.doubleClickHint')}
                 >
                   <span style={s.avatar}>{member.name?.slice(0, 1)?.toUpperCase() || '?'}</span>
                   <span style={s.memberInfo}>
@@ -180,6 +186,15 @@ export default function AttendancePage() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder={t('attendance.notePlaceholder')}
+            />
+            <input
+              style={s.durationInput}
+              type="number"
+              min="0.25"
+              step="0.25"
+              value={durationHours}
+              onChange={(e) => setDurationHours(e.target.value)}
+              title={t('attendance.durationHours')}
             />
             <button style={s.checkButton} onClick={() => handleCheckIn()} disabled={saving || !selectedId}>
               <CheckCircle2Icon size={18} />
@@ -234,6 +249,7 @@ export default function AttendancePage() {
                   <th style={s.th}>{t('attendance.phone')}</th>
                   <th style={s.th}>{t('attendance.date')}</th>
                   <th style={s.th}>{t('attendance.time')}</th>
+                  <th style={s.th}>{t('attendance.durationHours')}</th>
                   <th style={s.th}>{t('common.notes')}</th>
                 </tr>
               </thead>
@@ -246,6 +262,7 @@ export default function AttendancePage() {
                       <td style={s.td}>{item.member_phone}</td>
                       <td style={s.td}>{stamp.date}</td>
                       <td style={{ ...s.td, color: '#00f5d4', fontWeight: 700 }}>{stamp.time}</td>
+                      <td style={s.td}>{Number(item.duration_hours || 1).toFixed(1)}</td>
                       <td style={s.td}>{item.note || '-'}</td>
                     </tr>
                   )
@@ -286,16 +303,18 @@ const s = {
   memberList: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10, marginTop: 14 },
   memberRow: { minHeight: 68, display: 'flex', alignItems: 'center', gap: 10, textAlign: 'start', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(8,8,14,0.45)', color: '#fff', cursor: 'pointer' },
   memberRowSelected: { borderColor: 'rgba(0,245,212,0.55)', boxShadow: '0 0 0 1px rgba(0,245,212,0.18)' },
+  memberRowChecked: { opacity: 0.68, cursor: 'default' },
   avatar: { width: 36, height: 36, borderRadius: 8, display: 'grid', placeItems: 'center', background: 'rgba(0,245,212,0.12)', color: '#00f5d4', fontWeight: 800, flexShrink: 0 },
   memberInfo: { display: 'grid', gap: 4, minWidth: 0, flex: 1 },
   memberName: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 },
   memberPhone: { color: '#747485', fontSize: 12 },
   statusPill: { padding: '5px 9px', borderRadius: 6, background: 'rgba(255,255,255,0.055)', color: '#9a9aac', fontSize: 11, whiteSpace: 'nowrap' },
   checkedPill: { padding: '5px 9px', borderRadius: 6, background: 'rgba(0,245,147,0.12)', color: '#00f593', fontSize: 11, whiteSpace: 'nowrap' },
-  selectedBar: { marginTop: 16, display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr) auto', alignItems: 'center', gap: 12, padding: 12, borderRadius: 8, background: 'rgba(0,245,212,0.06)', border: '1px solid rgba(0,245,212,0.12)' },
+  selectedBar: { marginTop: 16, display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr) 90px auto', alignItems: 'center', gap: 12, padding: 12, borderRadius: 8, background: 'rgba(0,245,212,0.06)', border: '1px solid rgba(0,245,212,0.12)' },
   selectedLabel: { display: 'block', color: '#6f7082', fontSize: 11, marginBottom: 4 },
   selectedName: { color: '#fff', fontSize: 14 },
   noteInput: { minHeight: 42, padding: '0 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(8,8,14,0.45)', color: '#fff', outline: 0 },
+  durationInput: { minHeight: 42, padding: '0 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(8,8,14,0.45)', color: '#fff', outline: 0 },
   checkButton: { minHeight: 42, padding: '0 18px', border: 0, borderRadius: 8, background: 'linear-gradient(135deg, #00f5d4, #ffd60a)', color: '#08080e', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, cursor: 'pointer' },
   statsPanel: { display: 'grid', gap: 12 },
   stat: { minHeight: 122, display: 'grid', alignContent: 'center', gap: 8, padding: 18, borderRadius: 8, background: 'rgba(20,20,35,0.74)', border: '1px solid rgba(255,255,255,0.06)', color: '#8b8b9b' },

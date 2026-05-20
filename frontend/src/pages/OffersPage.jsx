@@ -3,6 +3,7 @@ import { getOffers, createOffer, updateOffer, deleteOffer } from '../api/offers'
 import { useI18n } from '../context/I18nContext'
 import { useToast } from '../context/ToastContext'
 import { showConfirm } from '../components/SweetAlert'
+import { formatCurrency } from '../utils/currency'
 
 export default function OffersPage() {
   const [offers, setOffers] = useState([]); const [showForm, setShowForm] = useState(false); const [editId, setEditId] = useState(null)
@@ -50,7 +51,7 @@ export default function OffersPage() {
           <thead><tr><th style={s.cell}>{t('offers.name')}</th><th style={s.cell}>{t('offers.discountPercent')}</th><th style={s.cell}>{t('offers.discountFixed')}</th><th style={s.cell}>{t('offers.startDate')}</th><th style={s.cell}>{t('offers.endDate')}</th><th style={s.cell}>{t('common.status')}</th><th style={s.cell}>{t('common.actions')}</th></tr></thead>
           <tbody>{offers.map(o => (
             <tr key={o.id}>
-              <td style={s.cell}>{o.name}</td><td style={{...s.cell, color: '#f39c12'}}>{o.discount_percent}%</td><td style={s.cell}>{o.discount_fixed ? `$${o.discount_fixed}` : '-'}</td>
+              <td style={s.cell}>{o.name}</td><td style={{...s.cell, color: '#f39c12'}}>{o.discount_percent}%</td><td style={s.cell}>{o.discount_fixed ? formatCurrency(o.discount_fixed) : '-'}</td>
               <td style={s.cell}>{o.start_date}</td><td style={s.cell}>{o.end_date}</td>
               <td style={s.cell}><span style={{ ...s.badge, background: o.is_active === 'true' ? 'rgba(46,204,113,0.15)' : 'rgba(231,76,60,0.15)', color: o.is_active === 'true' ? '#2ecc71' : '#e74c3c' }}>{o.is_active === 'true' ? t('common.active') : t('common.inactive')}</span></td>
               <td style={s.cell}><div style={s.btnGroup}><button style={s.btnEdit} onClick={() => handleEdit(o)}>{t('common.edit')}</button><button style={s.btnDel} onClick={() => handleDelete(o.id)}>{t('common.delete')}</button></div></td>

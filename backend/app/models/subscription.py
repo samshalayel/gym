@@ -31,8 +31,12 @@ class Subscription(Base):
     end_date = Column(Date, nullable=False)
     amount_paid = Column(Float, default=0)
     discount_amount = Column(Float, default=0)
+    session_count = Column(Integer, nullable=True)
+    payment_method = Column(String(50))
+    payment_account = Column(String(100))
     payment_status = Column(String(20), default=PaymentStatus.unpaid.value)
     renewal_status = Column(String(20), default="pending")
+    training_days = Column(String(30), default="all")
     notes = Column(String(255))
     created_at = Column(DateTime, server_default=func.now())
 

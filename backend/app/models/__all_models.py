@@ -10,3 +10,4 @@ from app.models.nutrition import NutritionPlan
 from app.models.user import User
 from app.models.attendance import Attendance
 from app.models.member_progress import MemberProgress
+from app.models.expense import Expense

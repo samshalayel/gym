@@ -7,6 +7,7 @@ class MembershipPlanBase(BaseModel):
     name: str
     duration_months: int
     price: float
+    session_count: Optional[int] = None
     description: Optional[str] = None
 
 
@@ -18,6 +19,7 @@ class MembershipPlanUpdate(BaseModel):
     name: Optional[str] = None
     duration_months: Optional[int] = None
     price: Optional[float] = None
+    session_count: Optional[int] = None
     description: Optional[str] = None
 
 
