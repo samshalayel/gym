@@ -1,5 +1,7 @@
+from sqlalchemy import exists
 from sqlalchemy.orm import Session
 from app.models.equipment import Equipment
+from app.models.equipment import EquipmentMaintenanceLog
 from app.schemas.equipment import EquipmentCreate, EquipmentUpdate
 from datetime import date
 
@@ -41,11 +43,21 @@ def delete_equipment(db: Session, equip_id: int):
 
 
 def get_equipment_needing_maintenance(db: Session):
+    open_log_exists = (
+        db.query(EquipmentMaintenanceLog.id)
+        .filter(
+            EquipmentMaintenanceLog.equipment_id == Equipment.id,
+            EquipmentMaintenanceLog.status == "open",
+        )
+        .exists()
+    )
     return (
         db.query(Equipment)
         .filter(
             (Equipment.maintenance_status == "needs_service")
-            | (Equipment.next_maintenance <= date.today())
+            | (Equipment.maintenance_status == "in_repair")
+            | (Equipment.condition == "poor")
+            | open_log_exists
         )
         .all()
     )

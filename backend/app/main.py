@@ -22,6 +22,8 @@ from app.routes import (
     attendance,
     member_progress,
     expenses,
+    sync,
+    schedule,
 )
 import os
 
@@ -50,8 +52,22 @@ app.include_router(member_portal.router)
 app.include_router(attendance.router)
 app.include_router(member_progress.router)
 app.include_router(expenses.router)
+app.include_router(sync.router)
+app.include_router(schedule.router)
 
-frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist"))
+import sys
+
+
+def _resolve_frontend_dist():
+    # When packaged by PyInstaller, the React build is bundled under _MEIPASS/frontend_dist.
+    if getattr(sys, "frozen", False):
+        bundled = os.path.join(getattr(sys, "_MEIPASS", ""), "frontend_dist")
+        if os.path.isdir(bundled):
+            return bundled
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist"))
+
+
+frontend_dist = _resolve_frontend_dist()
 assets_dir = os.path.join(frontend_dist, "assets")
 if os.path.isdir(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
@@ -77,8 +93,23 @@ def on_startup():
     db = SessionLocal()
     try:
         seed_data(db)
+        ensure_cashier_user(db)
     finally:
         db.close()
+
+
+def ensure_cashier_user(db):
+    from app.models.user import User as UserModel
+    from app.auth.auth import get_password_hash
+    if not db.query(UserModel).filter(UserModel.username == "cashier").first():
+        cashier = UserModel(
+            username="cashier",
+            hashed_password=get_password_hash("cashier123"),
+            email="cashier@gym.com",
+            role="cashier",
+        )
+        db.add(cashier)
+        db.commit()
 
 
 def ensure_runtime_columns():
@@ -98,6 +129,11 @@ def ensure_runtime_columns():
                 conn.execute(text("ALTER TABLE members ADD COLUMN birth_date DATE"))
             if "notes" not in member_columns:
                 conn.execute(text("ALTER TABLE members ADD COLUMN notes TEXT"))
+            if "member_code" not in member_columns:
+                conn.execute(text("ALTER TABLE members ADD COLUMN member_code VARCHAR(10)"))
+                rows = conn.execute(text("SELECT id FROM members ORDER BY id")).fetchall()
+                for idx, row in enumerate(rows, start=10001):
+                    conn.execute(text(f"UPDATE members SET member_code = '{idx}' WHERE id = {row[0]}"))
         if inspector.has_table("subscriptions"):
             sub_columns = {col["name"] for col in inspector.get_columns("subscriptions")}
             if "session_count" not in sub_columns:
@@ -106,7 +142,16 @@ def ensure_runtime_columns():
                 conn.execute(text("ALTER TABLE subscriptions ADD COLUMN payment_method VARCHAR(50)"))
             if "payment_account" not in sub_columns:
                 conn.execute(text("ALTER TABLE subscriptions ADD COLUMN payment_account VARCHAR(100)"))
+            if "payment_account_name" not in sub_columns:
+                conn.execute(text("ALTER TABLE subscriptions ADD COLUMN payment_account_name VARCHAR(100)"))
             if "training_days" not in sub_columns:
                 conn.execute(text("ALTER TABLE subscriptions ADD COLUMN training_days VARCHAR(30) DEFAULT 'all'"))
-
+            if "time_slot" not in sub_columns:
+                conn.execute(text("ALTER TABLE subscriptions ADD COLUMN time_slot VARCHAR(10)"))
+            if "training_type" not in sub_columns:
+                conn.execute(text("ALTER TABLE subscriptions ADD COLUMN training_type VARCHAR(20)"))
+        if inspector.has_table("equipment"):
+            equipment_columns = {col["name"] for col in inspector.get_columns("equipment")}
+            if "equipment_code" not in equipment_columns:
+                conn.execute(text("ALTER TABLE equipment ADD COLUMN equipment_code VARCHAR(50)"))
 

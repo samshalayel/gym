@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import OfflineBanner from '../components/OfflineBanner'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useI18n } from '../context/I18nContext'
 import { changePassword } from '../api/auth'
@@ -12,6 +13,7 @@ import {
   DumbbellIcon,
   UserCogIcon,
   ClipboardListIcon,
+  Clock3Icon,
   WalletCardsIcon,
   TrendingUpIcon,
   LogOutIcon,
@@ -19,17 +21,18 @@ import {
   XIcon,
 } from 'lucide-react'
 
-const navItems = [
-  { path: '/', key: 'dashboard', icon: LayoutDashboardIcon },
-  { path: '/members', key: 'members', icon: UsersIcon },
-  { path: '/plans', key: 'plans', icon: FileTextIcon },
-  { path: '/subscriptions', key: 'subscriptions', icon: TagsIcon },
-  { path: '/offers', key: 'offers', icon: TagIcon },
-  { path: '/equipment', key: 'equipment', icon: DumbbellIcon },
-  { path: '/staff', key: 'staff', icon: UserCogIcon },
-  { path: '/attendance-report', key: 'attendanceReport', icon: ClipboardListIcon },
-  { path: '/revenue', key: 'revenue', icon: TrendingUpIcon },
-  { path: '/expenses', key: 'expenses', icon: WalletCardsIcon },
+const allNavItems = [
+  { path: '/', key: 'dashboard', icon: LayoutDashboardIcon, roles: ['admin', 'cashier'] },
+  { path: '/members', key: 'members', icon: UsersIcon, roles: ['admin', 'cashier'] },
+  { path: '/plans', key: 'plans', icon: FileTextIcon, roles: ['admin'] },
+  { path: '/subscriptions', key: 'subscriptions', icon: TagsIcon, roles: ['admin', 'cashier'] },
+  { path: '/offers', key: 'offers', icon: TagIcon, roles: ['admin'] },
+  { path: '/equipment', key: 'equipment', icon: DumbbellIcon, roles: ['admin', 'cashier'] },
+  { path: '/staff', key: 'staff', icon: UserCogIcon, roles: ['admin'] },
+  { path: '/attendance-report', key: 'attendanceReport', icon: ClipboardListIcon, roles: ['admin', 'cashier'] },
+  { path: '/schedule', key: 'schedule', icon: Clock3Icon, roles: ['admin', 'cashier'] },
+  { path: '/revenue', key: 'revenue', icon: TrendingUpIcon, roles: ['admin'] },
+  { path: '/expenses', key: 'expenses', icon: WalletCardsIcon, roles: ['admin'] },
 ]
 
 export default function MainLayout({ children }) {
@@ -42,6 +45,9 @@ export default function MainLayout({ children }) {
   const [showChangePwd, setShowChangePwd] = useState(false)
   const [pwdForm, setPwdForm] = useState({ current: '', next: '', confirm: '' })
   const [pwdLoading, setPwdLoading] = useState(false)
+  const role = localStorage.getItem('role') || 'admin'
+  const username = localStorage.getItem('username') || ''
+  const navItems = allNavItems.filter(n => n.roles.includes(role))
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -109,6 +115,11 @@ export default function MainLayout({ children }) {
           </nav>
 
           <div style={styles.actions}>
+            {username && (
+              <span style={{ fontSize: 11, color: role === 'cashier' ? '#f39c12' : '#00f5d4', fontWeight: 700, background: role === 'cashier' ? 'rgba(243,156,18,0.1)' : 'rgba(0,245,212,0.1)', padding: '3px 8px', borderRadius: 4 }}>
+                {role === 'cashier' ? '💳' : '👑'} {username}
+              </span>
+            )}
             <span style={styles.dateText}>
               {new Date().toLocaleDateString(isRtl ? 'ar' : 'en', {
                 month: 'short', day: 'numeric'
@@ -153,6 +164,7 @@ export default function MainLayout({ children }) {
       </aside>
 
       <div style={styles.main}>
+        <OfflineBanner />
         <div style={styles.topArea}>
           <h1 style={styles.pageTitle}>
             {t(`nav.${current?.key || 'dashboard'}`)}

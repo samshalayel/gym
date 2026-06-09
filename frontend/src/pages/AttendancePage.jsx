@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  AlertTriangleIcon,
   BadgeCheckIcon,
   CalendarDaysIcon,
   CheckCircle2Icon,
@@ -9,7 +10,7 @@ import {
   UserCheckIcon,
   XIcon,
 } from 'lucide-react'
-import { createAttendance, getAttendance, getEligibleAttendanceMembers } from '../api/attendance'
+import { createAttendance, getAttendance, getEligibleAttendanceMembers, getAllMembersForAttendance } from '../api/attendance'
 import { useI18n } from '../context/I18nContext'
 import { useToast } from '../context/ToastContext'
 
@@ -32,10 +33,17 @@ export default function AttendancePage() {
   const [search, setSearch] = useState('')
   const [recordSearch, setRecordSearch] = useState('')
   const [selectedId, setSelectedId] = useState('')
-  const [durationHours, setDurationHours] = useState('1')
   const [note, setNote] = useState('')
   const [attendanceDate, setAttendanceDate] = useState(todayValue())
   const [totalCount, setTotalCount] = useState(0)
+
+  // Irregular attendance state
+  const [irregSearch, setIrregSearch] = useState('')
+  const [irregMembers, setIrregMembers] = useState([])
+  const [irregSelected, setIrregSelected] = useState(null)
+  const [irregNote, setIrregNote] = useState('')
+  const [irregSaving, setIrregSaving] = useState(false)
+  const [showIrreg, setShowIrreg] = useState(false)
 
   const loadMembers = useCallback(async () => {
     const res = await getEligibleAttendanceMembers({ search: search || undefined })
@@ -58,8 +66,38 @@ export default function AttendancePage() {
     }
   }, [recordSearch, attendanceDate])
 
+  const loadIrregMembers = useCallback(async () => {
+    if (!irregSearch) { setIrregMembers([]); return }
+    const res = await getAllMembersForAttendance({ search: irregSearch })
+    setIrregMembers(res.data.items || [])
+  }, [irregSearch])
+
+  const handleIrregCheckIn = async () => {
+    if (!irregSelected) { toast(t('attendance.chooseMember'), 'info'); return }
+    setIrregSaving(true)
+    try {
+      await createAttendance({
+        member_id: irregSelected.id,
+        duration_hours: 1,
+        force_irregular: true,
+        note: irregNote || null,
+      })
+      toast(t('attendance.irregularSaved'), 'success')
+      setIrregSelected(null)
+      setIrregNote('')
+      setIrregSearch('')
+      await loadAttendance()
+    } catch (error) {
+      if (error.response?.status === 409) toast(t('attendance.alreadyToday'), 'info')
+      else toast(error.response?.data?.detail || t('attendance.saveError'), 'error')
+    } finally {
+      setIrregSaving(false)
+    }
+  }
+
   useEffect(() => { loadMembers() }, [loadMembers])
   useEffect(() => { loadAttendance() }, [loadAttendance])
+  useEffect(() => { loadIrregMembers() }, [loadIrregMembers])
 
   const selectedMember = useMemo(
     () => members.find((member) => String(member.id) === String(selectedId)),
@@ -83,10 +121,13 @@ export default function AttendancePage() {
     }
     setSaving(true)
     try {
-      await createAttendance({ member_id: Number(memberId), duration_hours: Number(durationHours || 1), note: note || null })
-      toast(t('attendance.saved'), 'success')
+      const res = await createAttendance({ member_id: Number(memberId), duration_hours: 1, note: note || null })
+      const rem = res.data?.remaining_sessions
+      const msg = rem != null
+        ? `${t('attendance.saved')} — ${locale === 'ar' ? `متبقى ${rem} جلسة` : `${rem} sessions left`}`
+        : t('attendance.saved')
+      toast(msg, 'success')
       setSelectedId('')
-      setDurationHours('1')
       setNote('')
       await loadAttendance()
       await loadMembers()
@@ -94,6 +135,20 @@ export default function AttendancePage() {
       if (error.response?.status === 409) toast(t('attendance.alreadyToday'), 'info')
       else if (error.response?.status === 402) toast(t('attendance.notPaid'), 'error')
       else if (error.response?.status === 403) toast(t('attendance.noActiveSubscription'), 'error')
+      else if (error.response?.status === 428) {
+        if (window.confirm(t('attendance.offSchedule'))) {
+          try {
+            await createAttendance({ member_id: Number(memberId), duration_hours: 1, confirm_off_schedule: true, note: note || null })
+            toast(t('attendance.saved'), 'success')
+            setSelectedId('')
+            setNote('')
+            await loadAttendance()
+            await loadMembers()
+          } catch (retryError) {
+            toast(retryError.response?.data?.detail || t('attendance.saveError'), 'error')
+          }
+        }
+      }
       else toast(error.response?.data?.detail || t('attendance.saveError'), 'error')
     } finally {
       setSaving(false)
@@ -124,6 +179,7 @@ export default function AttendancePage() {
       </section>
 
       <section style={s.workArea}>
+        <div style={{ display: 'grid', gap: 14 }}>
         <div style={s.checkInPanel}>
           <div style={s.panelHead}>
             <div>
@@ -187,20 +243,94 @@ export default function AttendancePage() {
               onChange={(e) => setNote(e.target.value)}
               placeholder={t('attendance.notePlaceholder')}
             />
-            <input
-              style={s.durationInput}
-              type="number"
-              min="0.25"
-              step="0.25"
-              value={durationHours}
-              onChange={(e) => setDurationHours(e.target.value)}
-              title={t('attendance.durationHours')}
-            />
             <button style={s.checkButton} onClick={() => handleCheckIn()} disabled={saving || !selectedId}>
               <CheckCircle2Icon size={18} />
               {saving ? t('common.loading') : t('attendance.checkIn')}
             </button>
           </div>
+        </div>
+
+        {/* Irregular attendance panel */}
+        <div style={s.irregPanel}>
+          <button style={s.irregToggle} onClick={() => setShowIrreg((v) => !v)}>
+            <AlertTriangleIcon size={16} color="#ffd60a" />
+            <span style={{ color: '#ffd60a', fontWeight: 700, fontSize: 14 }}>{t('attendance.irregularSection')}</span>
+            <span style={{ color: '#6f7082', fontSize: 12, marginInlineStart: 'auto' }}>{showIrreg ? '▲' : '▼'}</span>
+          </button>
+
+          {showIrreg && (
+            <div style={{ padding: '12px 0 4px', display: 'grid', gap: 12 }}>
+              <p style={{ margin: 0, color: '#8b8b9b', fontSize: 13 }}>{t('attendance.irregularHint')}</p>
+              <div style={s.searchBox}>
+                <SearchIcon size={18} color="#5a5a6a" />
+                <input
+                  style={s.searchInput}
+                  value={irregSearch}
+                  onChange={(e) => { setIrregSearch(e.target.value); setIrregSelected(null) }}
+                  placeholder={t('attendance.searchAllMembers')}
+                />
+                {irregSearch && (
+                  <button style={s.iconBtn} onClick={() => { setIrregSearch(''); setIrregSelected(null) }}>
+                    <XIcon size={15} />
+                  </button>
+                )}
+              </div>
+
+              {irregMembers.length > 0 && (
+                <div style={s.memberList}>
+                  {irregMembers.slice(0, 8).map((member) => {
+                    const checked = activeTodayIds.has(member.id)
+                    const selected = irregSelected?.id === member.id
+                    return (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() => setIrregSelected(member)}
+                        style={{
+                          ...s.memberRow,
+                          ...(selected ? s.irregRowSelected : {}),
+                          ...(checked ? s.memberRowChecked : {}),
+                        }}
+                      >
+                        <span style={{ ...s.avatar, background: 'rgba(255,214,10,0.12)', color: '#ffd60a' }}>{member.name?.slice(0, 1)?.toUpperCase() || '?'}</span>
+                        <span style={s.memberInfo}>
+                          <strong style={s.memberName}>{member.name}</strong>
+                          <small style={s.memberPhone}>{member.phone}</small>
+                        </span>
+                        <span style={checked ? s.checkedPill : { ...s.statusPill, color: '#ffd60a', background: 'rgba(255,214,10,0.10)' }}>
+                          {checked ? t('attendance.checked') : member.status}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {irregSelected && (
+                <div style={{ ...s.selectedBar, borderColor: 'rgba(255,214,10,0.25)', background: 'rgba(255,214,10,0.06)' }}>
+                  <div>
+                    <span style={s.selectedLabel}>{t('attendance.selectedMember')}</span>
+                    <strong style={{ ...s.selectedName, color: '#ffd60a' }}>{irregSelected.name}</strong>
+                  </div>
+                  <input
+                    style={s.noteInput}
+                    value={irregNote}
+                    onChange={(e) => setIrregNote(e.target.value)}
+                    placeholder={t('attendance.notePlaceholder')}
+                  />
+                  <button
+                    style={{ ...s.checkButton, background: 'linear-gradient(135deg, #ffd60a, #ff8c00)', color: '#08080e' }}
+                    onClick={handleIrregCheckIn}
+                    disabled={irregSaving}
+                  >
+                    <AlertTriangleIcon size={18} />
+                    {irregSaving ? t('common.loading') : t('attendance.irregularCheckIn')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         </div>
 
         <div style={s.statsPanel}>
@@ -249,7 +379,7 @@ export default function AttendancePage() {
                   <th style={s.th}>{t('attendance.phone')}</th>
                   <th style={s.th}>{t('attendance.date')}</th>
                   <th style={s.th}>{t('attendance.time')}</th>
-                  <th style={s.th}>{t('attendance.durationHours')}</th>
+                  <th style={s.th}>{t('attendance.session')}</th>
                   <th style={s.th}>{t('common.notes')}</th>
                 </tr>
               </thead>
@@ -262,7 +392,7 @@ export default function AttendancePage() {
                       <td style={s.td}>{item.member_phone}</td>
                       <td style={s.td}>{stamp.date}</td>
                       <td style={{ ...s.td, color: '#00f5d4', fontWeight: 700 }}>{stamp.time}</td>
-                      <td style={s.td}>{Number(item.duration_hours || 1).toFixed(1)}</td>
+                      <td style={s.td}>1</td>
                       <td style={s.td}>{item.note || '-'}</td>
                     </tr>
                   )
@@ -310,11 +440,10 @@ const s = {
   memberPhone: { color: '#747485', fontSize: 12 },
   statusPill: { padding: '5px 9px', borderRadius: 6, background: 'rgba(255,255,255,0.055)', color: '#9a9aac', fontSize: 11, whiteSpace: 'nowrap' },
   checkedPill: { padding: '5px 9px', borderRadius: 6, background: 'rgba(0,245,147,0.12)', color: '#00f593', fontSize: 11, whiteSpace: 'nowrap' },
-  selectedBar: { marginTop: 16, display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr) 90px auto', alignItems: 'center', gap: 12, padding: 12, borderRadius: 8, background: 'rgba(0,245,212,0.06)', border: '1px solid rgba(0,245,212,0.12)' },
+  selectedBar: { marginTop: 16, display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr) auto', alignItems: 'center', gap: 12, padding: 12, borderRadius: 8, background: 'rgba(0,245,212,0.06)', border: '1px solid rgba(0,245,212,0.12)' },
   selectedLabel: { display: 'block', color: '#6f7082', fontSize: 11, marginBottom: 4 },
   selectedName: { color: '#fff', fontSize: 14 },
   noteInput: { minHeight: 42, padding: '0 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(8,8,14,0.45)', color: '#fff', outline: 0 },
-  durationInput: { minHeight: 42, padding: '0 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(8,8,14,0.45)', color: '#fff', outline: 0 },
   checkButton: { minHeight: 42, padding: '0 18px', border: 0, borderRadius: 8, background: 'linear-gradient(135deg, #00f5d4, #ffd60a)', color: '#08080e', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, cursor: 'pointer' },
   statsPanel: { display: 'grid', gap: 12 },
   stat: { minHeight: 122, display: 'grid', alignContent: 'center', gap: 8, padding: 18, borderRadius: 8, background: 'rgba(20,20,35,0.74)', border: '1px solid rgba(255,255,255,0.06)', color: '#8b8b9b' },
@@ -328,4 +457,7 @@ const s = {
   th: { padding: '13px 14px', textAlign: 'start', color: '#767687', background: 'rgba(255,255,255,0.035)', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   td: { padding: '13px 14px', borderBottom: '1px solid rgba(255,255,255,0.045)' },
   empty: { display: 'grid', placeItems: 'center', minHeight: 120, color: '#767687', border: '1px dashed rgba(255,255,255,0.10)', borderRadius: 8 },
+  irregPanel: { padding: '14px 18px', borderRadius: 8, background: 'rgba(255,214,10,0.04)', border: '1px solid rgba(255,214,10,0.18)' },
+  irregToggle: { width: '100%', display: 'flex', alignItems: 'center', gap: 10, background: 'transparent', border: 0, cursor: 'pointer', padding: 0 },
+  irregRowSelected: { borderColor: 'rgba(255,214,10,0.55)', boxShadow: '0 0 0 1px rgba(255,214,10,0.18)' },
 }

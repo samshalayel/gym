@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel
@@ -6,7 +6,10 @@ from pydantic import BaseModel
 
 class AttendanceCreate(BaseModel):
     member_id: int
+    attendance_date: Optional[date] = None
     duration_hours: Optional[float] = 1.0
+    confirm_off_schedule: bool = False
+    force_irregular: bool = False
     note: Optional[str] = None
 
 

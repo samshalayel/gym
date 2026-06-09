@@ -1,19 +1,33 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { getStaff, createStaff, updateStaff, deleteStaff } from '../api/staff'
+import { getStaff, createStaff, updateStaff, deleteStaff, getStaffAttendance, createStaffAttendance } from '../api/staff'
 import { useI18n } from '../context/I18nContext'
 import { useToast } from '../context/ToastContext'
 import { showConfirm } from '../components/SweetAlert'
+import { exportToExcel } from '../utils/exportExcel'
 
 const roleIcons = { trainer: '🏋️', admin: '👨‍💼', receptionist: '📞', manager: '👔' }
 const roleColors = { trainer: '#667eea', admin: '#e74c3c', receptionist: '#2ecc71', manager: '#f39c12' }
 
 export default function StaffPage() {
   const [staff, setStaff] = useState([]); const [showForm, setShowForm] = useState(false); const [editId, setEditId] = useState(null); const [search, setSearch] = useState('')
+  const [attendancePerson, setAttendancePerson] = useState(null); const [attendanceRows, setAttendanceRows] = useState([])
   const { t, locale } = useI18n(); const { toast } = useToast()
   const [form, setForm] = useState({ name: '', phone: '', email: '', role: 'trainer', specialization: '', is_active: 'true' })
+  const [attForm, setAttForm] = useState({ attendance_date: new Date().toISOString().slice(0, 10), check_in: '09:00', check_out: '', notes: '' })
 
   useEffect(() => { load() }, [])
   const load = async () => { const res = await getStaff(); setStaff(res.data.items) }
+
+  const handleExport = () => {
+    if (!staff.length) return
+    exportToExcel({
+      data: staff.map((p) => ({ name: p.name, phone: p.phone || '', email: p.email || '', role: t(`staff.${p.role}`) || p.role, specialization: p.specialization || '', is_active: p.is_active === 'true' ? (locale === 'ar' ? 'نشط' : 'Active') : (locale === 'ar' ? 'متوقف' : 'Inactive') })),
+      headers: ['name', 'phone', 'email', 'role', 'specialization', 'is_active'],
+      labels: locale === 'ar' ? ['الاسم', 'الهاتف', 'البريد', 'الدور', 'التخصص', 'الحالة'] : ['Name', 'Phone', 'Email', 'Role', 'Specialization', 'Status'],
+      filename: locale === 'ar' ? 'الموظفين' : 'staff',
+      sheet: locale === 'ar' ? 'الموظفين' : 'Staff',
+    })
+  }
 
   const filtered = useMemo(() => {
     if (!search.trim()) return staff
@@ -31,6 +45,21 @@ export default function StaffPage() {
     inactive: staff.filter(s => s.is_active !== 'true').length,
   }), [staff])
 
+  const attendanceSummary = useMemo(() => {
+    const completeRows = attendanceRows.filter((row) => row.check_in && row.check_out)
+    const totalHours = completeRows.reduce((sum, row) => {
+      const [inH, inM] = String(row.check_in).slice(0, 5).split(':').map(Number)
+      const [outH, outM] = String(row.check_out).slice(0, 5).split(':').map(Number)
+      const minutes = (outH * 60 + outM) - (inH * 60 + inM)
+      return sum + Math.max(minutes / 60, 0)
+    }, 0)
+    return {
+      days: attendanceRows.length,
+      complete: completeRows.length,
+      totalHours,
+    }
+  }, [attendanceRows])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
@@ -42,14 +71,30 @@ export default function StaffPage() {
 
   const handleEdit = (s) => { setForm({ name: s.name, phone: s.phone || '', email: s.email || '', role: s.role, specialization: s.specialization || '', is_active: s.is_active }); setEditId(s.id); setShowForm(true) }
   const handleDelete = async (id) => { if (await showConfirm(t('staff.deleteConfirm'), '', t('common.delete'), t('common.cancel'))) { try { await deleteStaff(id); toast(t('staff.deleted'), 'success'); load() } catch { toast('Error', 'error') } } }
+  const monthStart = new Date().toISOString().slice(0, 8) + '01'
+  const openAttendance = async (person) => {
+    setAttendancePerson(person)
+    const res = await getStaffAttendance(person.id, { start_date: monthStart, end_date: new Date().toISOString().slice(0, 10) })
+    setAttendanceRows(res.data.items || [])
+  }
+  const submitAttendance = async (e) => {
+    e.preventDefault()
+    await createStaffAttendance(attendancePerson.id, { ...attForm, check_out: attForm.check_out || null })
+    toast(t('staff.updated'), 'success')
+    setAttForm({ attendance_date: new Date().toISOString().slice(0, 10), check_in: '09:00', check_out: '', notes: '' })
+    openAttendance(attendancePerson)
+  }
 
   return (
     <div>
       <div style={s.header}>
         <h1 style={s.title}>{t('staff.title')}</h1>
-        <button style={s.btnPrimary} onClick={() => { setShowForm(!showForm); setEditId(null); setForm({ name: '', phone: '', email: '', role: 'trainer', specialization: '', is_active: 'true' }) }}>
-          {showForm ? `✕ ${t('common.cancel')}` : `+ ${t('staff.add')}`}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={s.btnExport} onClick={handleExport}>⬇ {locale === 'ar' ? 'تصدير Excel' : 'Export'}</button>
+          <button style={s.btnPrimary} onClick={() => { setShowForm(!showForm); setEditId(null); setForm({ name: '', phone: '', email: '', role: 'trainer', specialization: '', is_active: 'true' }) }}>
+            {showForm ? `✕ ${t('common.cancel')}` : `+ ${t('staff.add')}`}
+          </button>
+        </div>
       </div>
 
       <div style={s.statsRow}>
@@ -108,6 +153,7 @@ export default function StaffPage() {
                 </div>
               </div>
               <div style={s.btnGroup}>
+                <button style={s.btnEdit} onClick={() => openAttendance(person)}>{t('staff.attendance')}</button>
                 <button style={s.btnEdit} onClick={() => handleEdit(person)}>{t('common.edit')}</button>
                 <button style={s.btnDel} onClick={() => handleDelete(person.id)}>{t('common.delete')}</button>
               </div>
@@ -148,6 +194,40 @@ export default function StaffPage() {
           <p style={{ color: '#888', marginTop: 12, fontSize: 14 }}>{search ? 'No results' : t('staff.add')}</p>
         </div>
       )}
+      {attendancePerson && (
+        <div style={s.modalOverlay} onClick={() => setAttendancePerson(null)}>
+          <div style={s.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={s.header}>
+              <h2 style={s.title}>{attendancePerson.name} - {t('staff.attendance')}</h2>
+              <button style={s.btnDel} onClick={() => setAttendancePerson(null)}>x</button>
+            </div>
+            <form onSubmit={submitAttendance} style={s.form}>
+              <div style={s.formGrid}>
+                <input style={s.input} type="date" value={attForm.attendance_date} onChange={(e) => setAttForm({ ...attForm, attendance_date: e.target.value })} />
+                <input style={s.input} type="time" value={attForm.check_in} onChange={(e) => setAttForm({ ...attForm, check_in: e.target.value })} required />
+                <input style={s.input} type="time" value={attForm.check_out} onChange={(e) => setAttForm({ ...attForm, check_out: e.target.value })} />
+                <input style={s.input} placeholder={t('common.notes')} value={attForm.notes} onChange={(e) => setAttForm({ ...attForm, notes: e.target.value })} />
+              </div>
+              <button style={s.btnSuccess}>{t('common.save')}</button>
+            </form>
+            <div style={s.attSummary}>
+              <div style={s.attSummaryCard}><span>{locale === 'ar' ? 'أيام الحضور' : 'Attendance days'}</span><b>{attendanceSummary.days}</b></div>
+              <div style={s.attSummaryCard}><span>{locale === 'ar' ? 'أيام مكتملة' : 'Complete days'}</span><b>{attendanceSummary.complete}</b></div>
+              <div style={s.attSummaryCard}><span>{locale === 'ar' ? 'إجمالي الساعات' : 'Total hours'}</span><b>{attendanceSummary.totalHours.toFixed(1)}</b></div>
+            </div>
+            <div style={s.attList}>
+              {attendanceRows.map((row) => (
+                <div key={row.id} style={s.attRow}>
+                  <b>{row.attendance_date}</b>
+                  <span>{t('staff.checkIn')}: {row.check_in}</span>
+                  <span>{t('staff.checkOut')}: {row.check_out || '-'}</span>
+                  <small>{row.notes || ''}</small>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -156,6 +236,7 @@ const s = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   title: { fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 },
   btnPrimary: { padding: '12px 24px', background: 'linear-gradient(135deg, #667eea, #764ba2)', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 600 },
+  btnExport: { padding: '12px 18px', background: 'rgba(29,111,66,0.9)', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' },
   btnSuccess: { padding: '12px 24px', background: 'linear-gradient(135deg, #2ecc71, #27ae60)', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 600 },
   statsRow: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 },
   statCard: { background: 'rgba(20,20,35,0.6)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 4 },
@@ -206,4 +287,10 @@ const s = {
   footerLabel: { fontSize: 11, color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' },
   statusBadge: { padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600 },
   empty: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 60 },
+  modalOverlay: { position: 'fixed', inset: 0, zIndex: 1000, display: 'grid', placeItems: 'center', padding: 24, background: 'rgba(0,0,0,0.72)' },
+  modal: { width: 'min(860px, 94vw)', maxHeight: '88vh', overflow: 'auto', padding: 20, borderRadius: 10, background: '#08080e', border: '1px solid rgba(255,255,255,0.12)' },
+  attList: { display: 'grid', gap: 8 },
+  attSummary: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginBottom: 12 },
+  attSummaryCard: { display: 'grid', gap: 5, padding: 12, borderRadius: 8, background: 'rgba(0,245,212,0.08)', border: '1px solid rgba(0,245,212,0.12)', color: '#8b8b9b' },
+  attRow: { display: 'grid', gridTemplateColumns: '120px 1fr 1fr 1fr', gap: 10, padding: 10, borderRadius: 8, background: 'rgba(255,255,255,0.05)', color: '#d8d8e4' },
 }

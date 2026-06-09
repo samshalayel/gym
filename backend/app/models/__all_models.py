@@ -1,9 +1,10 @@
 from app.models.member import Member
 from app.models.membership_plan import MembershipPlan
 from app.models.offer import Offer
-from app.models.subscription import Subscription
-from app.models.equipment import Equipment
+from app.models.subscription import Subscription, SubscriptionPayment
+from app.models.equipment import Equipment, EquipmentMaintenanceLog
 from app.models.staff import Staff
+from app.models.staff_attendance import StaffAttendance
 from app.models.appointment import Appointment
 from app.models.workout import WorkoutType, Exercise, WorkoutPlan
 from app.models.nutrition import NutritionPlan

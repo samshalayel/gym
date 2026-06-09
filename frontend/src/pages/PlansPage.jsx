@@ -4,13 +4,25 @@ import { useI18n } from '../context/I18nContext'
 import { useToast } from '../context/ToastContext'
 import { showConfirm } from '../components/SweetAlert'
 import { formatCurrency } from '../utils/currency'
+import { exportToExcel } from '../utils/exportExcel'
 
 export default function PlansPage() {
   const [plans, setPlans] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { toast } = useToast()
+
+  const handleExport = () => {
+    if (!plans.length) return
+    exportToExcel({
+      data: plans.map((p) => ({ name: p.name, duration_months: p.duration_months, price: p.price, session_count: p.session_count ?? '', description: p.description || '' })),
+      headers: ['name', 'duration_months', 'price', 'session_count', 'description'],
+      labels: locale === 'ar' ? ['الاسم', 'المدة (شهر)', 'السعر', 'عدد الجلسات', 'الوصف'] : ['Name', 'Months', 'Price', 'Sessions', 'Description'],
+      filename: locale === 'ar' ? 'الباقات' : 'plans',
+      sheet: locale === 'ar' ? 'الباقات' : 'Plans',
+    })
+  }
   const [form, setForm] = useState({ name: '', duration_months: 1, price: '', session_count: '', description: '' })
 
   useEffect(() => { load() }, [])
@@ -32,7 +44,7 @@ export default function PlansPage() {
 
   return (
     <div>
-      <div style={s.header}><h1 style={s.title}>{t('plans.title')}</h1><button style={s.btnPrimary} onClick={() => { setShowForm(!showForm); setEditId(null); setForm({ name: '', duration_months: 1, price: '', session_count: '', description: '' }) }}>{showForm ? `✕ ${t('common.cancel')}` : `+ ${t('plans.add')}`}</button></div>
+      <div style={s.header}><h1 style={s.title}>{t('plans.title')}</h1><div style={{ display: 'flex', gap: 8 }}><button style={s.btnExport} onClick={handleExport}>⬇ {locale === 'ar' ? 'تصدير Excel' : 'Export'}</button><button style={s.btnPrimary} onClick={() => { setShowForm(!showForm); setEditId(null); setForm({ name: '', duration_months: 1, price: '', session_count: '', description: '' }) }}>{showForm ? `✕ ${t('common.cancel')}` : `+ ${t('plans.add')}`}</button></div></div>
       {showForm && (
         <form onSubmit={handleSubmit} style={s.form}>
           <div style={s.formGrid}>
@@ -66,6 +78,7 @@ const s = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   title: { fontFamily: 'var(--font-heading)', fontSize: 28, fontWeight: 400, color: '#fff', letterSpacing: '1px', margin: 0 },
   btnPrimary: { padding: '10px 22px', background: '#00f5d4', color: '#08080e', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
+  btnExport: { padding: '10px 18px', background: 'rgba(29,111,66,0.9)', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' },
   btnSuccess: { padding: '12px 24px', background: '#00f593', color: '#08080e', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
   form: { background: 'rgba(14,14,24,0.7)', border: '1px solid rgba(255,255,255,0.04)', padding: 24, borderRadius: 14, marginBottom: 24 },
   formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 16 },

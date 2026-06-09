@@ -6,7 +6,7 @@ from datetime import date, datetime
 class MemberBase(BaseModel):
     name: str
     phone: str
-    email: str
+    email: Optional[str] = None
     gender: Optional[str] = None
     age: Optional[int] = None
     birth_date: Optional[date] = None
@@ -39,6 +39,7 @@ class MemberUpdate(BaseModel):
 class MemberResponse(MemberBase):
     id: int
     status: str
+    member_code: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

@@ -20,6 +20,7 @@ export default function LoginPage() {
       const res = await login(form.username, form.password)
       localStorage.setItem('token', res.data.access_token)
       localStorage.setItem('role', res.data.role)
+      localStorage.setItem('username', res.data.username || '')
       if (res.data.member_id) localStorage.setItem('member_id', res.data.member_id)
 
       const target = res.data.role === 'member' ? '/member-portal' : '/'

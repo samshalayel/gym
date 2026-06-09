@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -9,8 +11,28 @@ from app.crud.equipment import (
     delete_equipment,
     get_equipment_needing_maintenance,
 )
+from app.models.equipment import EquipmentMaintenanceLog
+from app.schemas.equipment import EquipmentMaintenanceLogCreate, EquipmentMaintenanceLogUpdate
 
 router = APIRouter(prefix="/api/equipment", tags=["equipment"])
+
+
+def sync_equipment_maintenance_state(db: Session, item):
+    open_count = (
+        db.query(EquipmentMaintenanceLog)
+        .filter(
+            EquipmentMaintenanceLog.equipment_id == item.id,
+            EquipmentMaintenanceLog.status == "open",
+        )
+        .count()
+    )
+    if open_count > 0:
+        item.maintenance_status = "needs_service"
+        item.condition = "poor"
+        return
+    item.maintenance_status = "ok"
+    if item.condition == "poor":
+        item.condition = "good"
 
 
 @router.get("")
@@ -35,6 +57,66 @@ def get_equipment_detail(equip_id: int, db: Session = Depends(get_db)):
     if not item:
         raise HTTPException(status_code=404, detail="Equipment not found")
     return item
+
+
+@router.get("/{equip_id}/maintenance-logs")
+def get_equipment_maintenance_logs(equip_id: int, db: Session = Depends(get_db)):
+    if not get_equipment(db, equip_id):
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    items = (
+        db.query(EquipmentMaintenanceLog)
+        .filter(EquipmentMaintenanceLog.equipment_id == equip_id)
+        .order_by(EquipmentMaintenanceLog.issue_date.desc(), EquipmentMaintenanceLog.id.desc())
+        .all()
+    )
+    return {"total": len(items), "items": items}
+
+
+@router.post("/{equip_id}/maintenance-logs", status_code=201)
+def create_equipment_maintenance_log(
+    equip_id: int,
+    data: EquipmentMaintenanceLogCreate,
+    db: Session = Depends(get_db),
+):
+    item = get_equipment(db, equip_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    payload = data.model_dump()
+    log = EquipmentMaintenanceLog(equipment_id=equip_id, **payload)
+    db.add(log)
+    if payload.get("status") == "repaired":
+        repair_date = payload.get("repair_date") or payload.get("issue_date")
+        if repair_date:
+            item.last_maintenance = repair_date
+            if not item.next_maintenance or item.next_maintenance <= repair_date:
+                item.next_maintenance = repair_date + timedelta(days=30)
+    sync_equipment_maintenance_state(db, item)
+    db.commit()
+    db.refresh(log)
+    return log
+
+
+@router.put("/maintenance-logs/{log_id}")
+def update_equipment_maintenance_log(
+    log_id: int,
+    data: EquipmentMaintenanceLogUpdate,
+    db: Session = Depends(get_db),
+):
+    log = db.query(EquipmentMaintenanceLog).filter(EquipmentMaintenanceLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Maintenance log not found")
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(log, key, value)
+    item = get_equipment(db, log.equipment_id)
+    if item:
+        if log.repair_date:
+            item.last_maintenance = log.repair_date
+            if not item.next_maintenance or item.next_maintenance <= log.repair_date:
+                item.next_maintenance = log.repair_date + timedelta(days=30)
+        sync_equipment_maintenance_state(db, item)
+    db.commit()
+    db.refresh(log)
+    return log
 
 
 @router.post("", status_code=201)

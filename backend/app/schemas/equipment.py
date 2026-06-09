@@ -4,6 +4,7 @@ from datetime import datetime, date
 
 
 class EquipmentBase(BaseModel):
+    equipment_code: Optional[str] = None
     name: str
     category: Optional[str] = None
     quantity: Optional[int] = 1
@@ -20,6 +21,7 @@ class EquipmentCreate(EquipmentBase):
 
 
 class EquipmentUpdate(BaseModel):
+    equipment_code: Optional[str] = None
     name: Optional[str] = None
     category: Optional[str] = None
     quantity: Optional[int] = None
@@ -33,6 +35,39 @@ class EquipmentUpdate(BaseModel):
 
 class EquipmentResponse(EquipmentBase):
     id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EquipmentMaintenanceLogBase(BaseModel):
+    issue_date: Optional[date] = None
+    issue_description: str
+    repair_date: Optional[date] = None
+    repair_description: Optional[str] = None
+    cost: Optional[int] = 0
+    handled_by: Optional[str] = None
+    status: Optional[str] = "open"
+
+
+class EquipmentMaintenanceLogCreate(EquipmentMaintenanceLogBase):
+    pass
+
+
+class EquipmentMaintenanceLogUpdate(BaseModel):
+    issue_date: Optional[date] = None
+    issue_description: Optional[str] = None
+    repair_date: Optional[date] = None
+    repair_description: Optional[str] = None
+    cost: Optional[int] = None
+    handled_by: Optional[str] = None
+    status: Optional[str] = None
+
+
+class EquipmentMaintenanceLogResponse(EquipmentMaintenanceLogBase):
+    id: int
+    equipment_id: int
     created_at: datetime
 
     class Config:

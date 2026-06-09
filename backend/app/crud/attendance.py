@@ -34,6 +34,7 @@ def get_attendance(
             Member.name.ilike(f"%{search}%")
             | Member.phone.ilike(f"%{search}%")
             | Member.email.ilike(f"%{search}%")
+            | Member.member_code.ilike(f"%{search}%")
         )
     if attendance_date:
         query = query.filter(func.date(Attendance.checked_in_at) == attendance_date.isoformat())
@@ -59,8 +60,9 @@ def get_today_attendance_for_member(db: Session, member_id: int):
     )
 
 
-def create_attendance(db: Session, data: AttendanceCreate):
-    attendance = Attendance(**data.model_dump(), checked_in_at=local_now())
+def create_attendance(db: Session, data: AttendanceCreate, checked_in_at: datetime = None):
+    payload = data.model_dump(exclude={"attendance_date", "confirm_off_schedule", "force_irregular"})
+    attendance = Attendance(**payload, checked_in_at=checked_in_at or local_now())
     db.add(attendance)
     db.commit()
     db.refresh(attendance)

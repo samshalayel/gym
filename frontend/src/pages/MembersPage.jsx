@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { getMembers, createMember, updateMember, deleteMember } from '../api/members'
+import { getMembers, createMember, updateMember, deleteMember, togglePortalAccess } from '../api/members'
 import { getMemberSubscriptions, renewSubscription, changeSubscriptionPlan } from '../api/subscriptions'
 import { getPlans } from '../api/plans'
 import { useI18n } from '../context/I18nContext'
@@ -8,6 +8,7 @@ import { useToast } from '../context/ToastContext'
 import { showConfirm } from '../components/SweetAlert'
 import Swal from 'sweetalert2'
 import { exportCSV, parseCSV } from '../utils/csv'
+import { exportToExcel } from '../utils/exportExcel'
 import { formatCurrency } from '../utils/currency'
 import { genderLabel, memberStatusLabel, paymentStatusLabel } from '../utils/displayLabels'
 
@@ -22,12 +23,16 @@ const addMonths = (dateValue, months) => {
 const statusMeta = {
   active: { color: '#00f593', bg: 'rgba(0,245,147,0.12)' },
   expired: { color: '#ff3355', bg: 'rgba(255,51,85,0.12)' },
+  debtor: { color: '#ffd60a', bg: 'rgba(255,214,10,0.12)' },
   frozen: { color: '#00aaff', bg: 'rgba(0,170,255,0.12)' },
   canceled: { color: '#6b6b80', bg: 'rgba(107,107,128,0.12)' },
 }
 
 const initialForm = { name: '', phone: '', email: '', gender: '', birth_date: '', address: '', emergency_contact: '', emergency_phone: '', status: 'active', notes: '' }
-const initialSubAction = { type: 'renew', plan_id: '', amount_paid: 0, payment_status: 'paid', payment_method: 'cash', payment_account: '', session_count: '', training_days: 'all', notes: '' }
+const initialSubAction = { type: 'renew', plan_id: '', amount_paid: 0, payment_status: 'paid', payment_method: 'cash', payment_account: '', payment_account_name: '', session_count: '', training_days: 'all', time_slot: '', training_type: '', notes: '', start_date: '', collection_date: today() }
+const FEMALE_SLOTS = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00']
+const MALE_SLOTS = ['12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00']
+const slotLabel = (slot) => { if (!slot) return ''; const h = parseInt(slot); const e = (h + 1) % 24; const f = (x) => `${String(x).padStart(2, '0')}:00`; return `${f(h)} - ${f(e)}` }
 
 export default function MembersPage() {
   const [members, setMembers] = useState([])
@@ -93,7 +98,7 @@ export default function MembersPage() {
       name: m.name, phone: m.phone, email: m.email,
       gender: m.gender || '', birth_date: m.birth_date || '', address: m.address || '',
       emergency_contact: m.emergency_contact || '', emergency_phone: m.emergency_phone || '', status: m.status,
-      notes: m.notes || '',
+      notes: m.notes || '', member_code: m.member_code || '',
     })
     setEditId(m.id); setShowForm(true)
   }
@@ -106,6 +111,34 @@ export default function MembersPage() {
     setSubAction(null)
   }
 
+  const handlePortalAccess = async (m) => {
+    try {
+      const res = await togglePortalAccess(m.id)
+      const d = res.data
+      if (d.has_portal_access) {
+        // Show the generated credentials clearly so staff can hand them to the member.
+        await Swal.fire({
+          icon: 'success',
+          title: locale === 'ar' ? 'تم تفعيل دخول البوابة' : 'Portal access granted',
+          html: `
+            <div style="text-align:${locale === 'ar' ? 'right' : 'left'};direction:${locale === 'ar' ? 'rtl' : 'ltr'};font-size:15px;line-height:2">
+              <div>${locale === 'ar' ? 'اسم المستخدم' : 'Username'}: <b style="font-family:monospace;color:#00b894">${d.username}</b></div>
+              <div>${locale === 'ar' ? 'كلمة المرور' : 'Password'}: <b style="font-family:monospace;color:#00b894">${d.password}</b></div>
+              <div style="margin-top:10px;font-size:13px;color:#888">${locale === 'ar' ? 'يدخل العضو من نفس الرابط silvergym.club' : 'Member logs in at silvergym.club'}</div>
+            </div>`,
+          confirmButtonText: locale === 'ar' ? 'تم' : 'OK',
+        })
+        setDetailMember({ ...m, has_portal_access: true })
+      } else {
+        toast(locale === 'ar' ? 'تم إلغاء دخول البوابة' : 'Portal access revoked', 'info')
+        setDetailMember({ ...m, has_portal_access: false })
+      }
+      load()
+    } catch {
+      toast(locale === 'ar' ? 'تعذر تغيير صلاحية البوابة' : 'Could not toggle portal access', 'error')
+    }
+  }
+
   const latestEndDate = useMemo(() => {
     if (!memberSubs.length) return null
     return memberSubs.reduce((latest, sub) => !latest || sub.end_date > latest ? sub.end_date : latest, null)
@@ -113,6 +146,8 @@ export default function MembersPage() {
 
   const actionStartDate = useMemo(() => {
     if (!subAction) return null
+    // A manually chosen renewal date overrides the auto-computed one.
+    if (subAction.type === 'renew' && subAction.start_date) return subAction.start_date
     if (subAction.type === 'change') return today()
     if (!latestEndDate || latestEndDate < today()) return today()
     const d = new Date(latestEndDate)
@@ -158,8 +193,16 @@ export default function MembersPage() {
       payment_status: subAction.payment_status,
       payment_method: subAction.payment_method,
       payment_account: subAction.payment_account,
+      payment_account_name: subAction.payment_account_name,
       training_days: subAction.training_days,
+      time_slot: subAction.time_slot,
+      training_type: subAction.training_type,
       notes: subAction.notes,
+      collection_date: subAction.collection_date || today(),
+    }
+    // Renewals may carry a manually chosen start date.
+    if (subAction.type === 'renew' && subAction.start_date) {
+      payload.start_date = subAction.start_date
     }
     try {
       if (subAction.type === 'change') await changeSubscriptionPlan(payload)
@@ -177,7 +220,20 @@ export default function MembersPage() {
   const handleDelete = async (id) => {
     if (await showConfirm(t('members.deleteConfirm'), '', t('common.delete'), t('common.cancel'))) {
       try { await deleteMember(id); toast(t('members.deleted'), 'success'); load() }
-      catch { toast(t('members.deleteError'), 'error') }
+      catch (err) {
+        if (err.response?.status === 409 && err.response?.data?.detail === 'active_subscription') {
+          await Swal.fire({
+            icon: 'warning',
+            title: locale === 'ar' ? 'لا يمكن الحذف' : 'Cannot delete',
+            html: locale === 'ar'
+              ? 'هذا العضو لديه <b>اشتراك فعّال</b>.<br/>يجب إنهاء أو إلغاء الاشتراك أولاً قبل حذف العضو.'
+              : 'This member has an <b>active subscription</b>.<br/>End or cancel the subscription before deleting.',
+            confirmButtonText: locale === 'ar' ? 'حسناً' : 'OK',
+          })
+        } else {
+          toast(t('members.deleteError'), 'error')
+        }
+      }
     }
   }
 
@@ -185,18 +241,27 @@ export default function MembersPage() {
     const res = await getMembers({ limit: 10000 })
     const all = res.data.items
     if (all.length === 0) { toast(t('common.noData'), 'info'); return }
-    exportCSV(all, 'members', [
-      { label: 'ID', accessor: m => m.id },
-      { label: 'Name', accessor: m => m.name },
-      { label: 'Phone', accessor: m => m.phone },
-      { label: 'Email', accessor: m => m.email },
-      { label: 'Gender', accessor: m => genderLabel(m.gender, 'en') },
-      { label: 'Birth Date', accessor: m => m.birth_date || '' },
-      { label: 'Address', accessor: m => m.address },
-      { label: 'Emergency Contact', accessor: m => m.emergency_contact },
-      { label: 'Emergency Phone', accessor: m => m.emergency_phone },
-      { label: 'Status', accessor: m => memberStatusLabel(m.status, 'en') },
-    ])
+    const rows = all.map((m) => ({
+      member_code: m.member_code || '',
+      name: m.name,
+      phone: m.phone,
+      email: m.email || '',
+      gender: genderLabel(m.gender, locale),
+      birth_date: m.birth_date || '',
+      address: m.address || '',
+      emergency_contact: m.emergency_contact || '',
+      emergency_phone: m.emergency_phone || '',
+      status: memberStatusLabel(m.status, locale),
+    }))
+    exportToExcel({
+      data: rows,
+      headers: ['member_code', 'name', 'phone', 'email', 'gender', 'birth_date', 'address', 'emergency_contact', 'emergency_phone', 'status'],
+      labels: locale === 'ar'
+        ? ['رقم العضو', 'الاسم', 'الهاتف', 'البريد', 'الجنس', 'تاريخ الميلاد', 'العنوان', 'جهة طوارئ', 'هاتف الطوارئ', 'الحالة']
+        : ['Code', 'Name', 'Phone', 'Email', 'Gender', 'Birth Date', 'Address', 'Emergency Contact', 'Emergency Phone', 'Status'],
+      filename: locale === 'ar' ? 'الأعضاء' : 'members',
+      sheet: locale === 'ar' ? 'الأعضاء' : 'Members',
+    })
     toast(t('members.exported'), 'success')
   }
 
@@ -259,7 +324,7 @@ export default function MembersPage() {
           {search && <button style={s.clearBtn} onClick={() => handleSearch('')}>✕</button>}
         </div>
         <div style={s.statChips}>
-          {['all', 'active', 'expired', 'frozen', 'canceled'].map((status) => (
+          {['all', 'active', 'debtor', 'expired', 'frozen', 'canceled'].map((status) => (
             <button key={status} style={{ ...s.chip, ...(statusFilter === status ? s.chipActive : {}) }} onClick={() => handleStatusFilter(status)}>
               {status === 'all' ? t('common.all') : t(`members.status${status.charAt(0).toUpperCase()}${status.slice(1)}`)}
             </button>
@@ -274,6 +339,14 @@ export default function MembersPage() {
             <button type="button" style={s.formClose} onClick={() => setShowForm(false)}>✕</button>
           </div>
           <div style={s.formGrid}>
+            <div style={s.field}>
+              <label style={s.label}>{locale === 'ar' ? 'رقم العضو' : 'Member Code'}</label>
+              <div style={{ ...s.input, background: 'rgba(162,119,255,0.08)', border: '1px solid rgba(162,119,255,0.2)', color: editId ? '#a277ff' : '#5a5a7a', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontWeight: 700 }}>
+                {editId
+                  ? (form.member_code ? `#${form.member_code}` : '—')
+                  : <span style={{ color: '#5a5a7a', fontSize: 12 }}>{locale === 'ar' ? 'يُولَّد تلقائياً' : 'Auto-generated'}</span>}
+              </div>
+            </div>
             <div style={s.field}>
               <label style={s.label}>{t('members.name')} *</label>
               <input style={s.input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required lang="ar" dir="rtl" />
@@ -310,15 +383,6 @@ export default function MembersPage() {
               <label style={s.label}>{t('members.emergencyPhone')}</label>
               <input style={s.input} value={form.emergency_phone} onChange={(e) => setForm({ ...form, emergency_phone: e.target.value })} />
             </div>
-            <div style={s.field}>
-              <label style={s.label}>{t('common.status')}</label>
-              <select style={s.input} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                <option value="active">{t('members.statusActive')}</option>
-                <option value="expired">{t('members.statusExpired')}</option>
-                <option value="frozen">{t('members.statusFrozen')}</option>
-                <option value="canceled">{t('members.statusCanceled')}</option>
-              </select>
-            </div>
             <div style={s.fieldWide}>
               <label style={s.label}>{t('common.notes')}</label>
               <textarea style={s.textarea} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -354,7 +418,10 @@ export default function MembersPage() {
                     <span style={s.cardName}>{m.name}</span>
                     <span style={s.cardEmail}>{m.email}</span>
                   </div>
-                  <div style={{ ...s.badge, background: status.bg, color: status.color }}>{memberStatusLabel(m.status, locale)}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                    {m.member_code && <span style={s.memberCodeBadge}>#{m.member_code}</span>}
+                    <div style={{ ...s.badge, background: status.bg, color: status.color }}>{memberStatusLabel(m.status, locale)}</div>
+                  </div>
                 </div>
                 <div style={s.cardBody}>
                   <div style={s.detailRow}>
@@ -389,7 +456,10 @@ export default function MembersPage() {
           <div style={s.detailModal} onClick={(e) => e.stopPropagation()}>
             <div style={s.formHeader}>
               <h3 style={s.formTitle}>{detailMember.name}</h3>
-              <button type="button" style={s.formClose} onClick={() => setDetailMember(null)}>x</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {detailMember.member_code && <span style={s.memberCodeBadge}>#{detailMember.member_code}</span>}
+                <button type="button" style={s.formClose} onClick={() => setDetailMember(null)}>x</button>
+              </div>
             </div>
             <div style={s.detailsGrid}>
               <span>{t('common.phone')}: <b>{detailMember.phone}</b></span>
@@ -397,6 +467,25 @@ export default function MembersPage() {
               <span>{t('members.birthDate')}: <b>{detailMember.birth_date || '-'}</b></span>
               <span>{t('common.status')}: <b>{memberStatusLabel(detailMember.status, locale)}</b></span>
               <span>{t('common.notes')}: <b>{detailMember.notes || '-'}</b></span>
+            </div>
+
+            <div style={s.portalRow}>
+              <div>
+                <div style={{ fontSize: 13, color: '#e8e8f0', fontWeight: 600 }}>📱 {locale === 'ar' ? 'بوابة العضو' : 'Member Portal'}</div>
+                <div style={{ fontSize: 11, color: detailMember.has_portal_access ? '#00f593' : '#6b6b80' }}>
+                  {detailMember.has_portal_access
+                    ? (locale === 'ar' ? 'مفعّلة — يمكن للعضو الدخول' : 'Active — member can log in')
+                    : (locale === 'ar' ? 'غير مفعّلة' : 'Not active')}
+                </div>
+              </div>
+              <button
+                style={detailMember.has_portal_access ? s.portalRevoke : s.portalGrant}
+                onClick={() => handlePortalAccess(detailMember)}
+              >
+                {detailMember.has_portal_access
+                  ? (locale === 'ar' ? 'إلغاء الدخول' : 'Revoke')
+                  : (locale === 'ar' ? '🔑 تفعيل الدخول' : '🔑 Grant access')}
+              </button>
             </div>
             <h4 style={s.subTitle}>{t('subscriptions.title')}</h4>
             <div style={s.subActions}>
@@ -427,12 +516,34 @@ export default function MembersPage() {
                     <option value="mal_chat">{t('subscriptions.malChat')}</option>
                     <option value="other_banks">{t('subscriptions.otherBanks')}</option>
                   </select>
-                  <input style={s.input} value={subAction.payment_account} onChange={(e) => setSubAction({ ...subAction, payment_account: e.target.value })} placeholder={t('subscriptions.paymentAccount')} />
+                  <input style={s.input} value={subAction.payment_account_name} onChange={(e) => setSubAction({ ...subAction, payment_account_name: e.target.value })} placeholder={locale === 'ar' ? 'اسم صاحب الحساب' : 'Account holder name'} />
+                  <input style={s.input} value={subAction.payment_account} onChange={(e) => setSubAction({ ...subAction, payment_account: e.target.value })} placeholder={locale === 'ar' ? 'رقم صاحب الحساب' : 'Account number'} />
                   <select style={s.input} value={subAction.training_days} onChange={(e) => setSubAction({ ...subAction, training_days: e.target.value })}>
                     <option value="sat_mon_wed">{t('subscriptions.satMonWed')}</option>
                     <option value="sun_tue_thu">{t('subscriptions.sunTueThu')}</option>
                     <option value="all">{t('subscriptions.allWeek')}</option>
                   </select>
+                  <select style={s.input} value={subAction.training_type} onChange={(e) => setSubAction({ ...subAction, training_type: e.target.value })}>
+                    <option value="">{locale === 'ar' ? 'نوع التدريب' : 'Training type'}</option>
+                    <option value="weights">{locale === 'ar' ? '🏋️ حديد' : '🏋️ Weights'}</option>
+                    <option value="fitness">{locale === 'ar' ? '🤸 لياقة' : '🤸 Fitness'}</option>
+                  </select>
+                  <select style={s.input} value={subAction.time_slot} onChange={(e) => setSubAction({ ...subAction, time_slot: e.target.value })}>
+                    <option value="">{locale === 'ar' ? '⏰ السلوت (الساعة)' : '⏰ Time slot'}</option>
+                    {(detailMember?.gender === 'female' ? FEMALE_SLOTS : detailMember?.gender === 'male' ? MALE_SLOTS : [...FEMALE_SLOTS, ...MALE_SLOTS]).map((sl) => (
+                      <option key={sl} value={sl}>{slotLabel(sl)}{FEMALE_SLOTS.includes(sl) ? (locale === 'ar' ? ' (إناث)' : ' (F)') : (locale === 'ar' ? ' (ذكور)' : ' (M)')}</option>
+                    ))}
+                  </select>
+                  {subAction.type === 'renew' && (
+                    <div style={s.dateField}>
+                      <label style={s.dateLabel}>{locale === 'ar' ? 'تاريخ بدء التجديد' : 'Renewal start date'}</label>
+                      <input style={s.input} type="date" value={actionStartDate || ''} onChange={(e) => setSubAction({ ...subAction, start_date: e.target.value })} />
+                    </div>
+                  )}
+                  <div style={s.dateField}>
+                    <label style={{ ...s.dateLabel, color: '#00f5d4' }}>💵 {locale === 'ar' ? 'تاريخ التحصيل' : 'Collection date'}</label>
+                    <input style={s.input} type="date" value={subAction.collection_date} onChange={(e) => setSubAction({ ...subAction, collection_date: e.target.value })} />
+                  </div>
                   <input style={s.input} value={subAction.notes} onChange={(e) => setSubAction({ ...subAction, notes: e.target.value })} placeholder={t('common.notes')} />
                 </div>
                 {actionStartDate && actionEndDate && (
@@ -605,6 +716,12 @@ const s = {
   cardInfo: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 },
   cardName: { fontSize: 15, fontWeight: 600, color: '#e8e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   cardEmail: { fontSize: 12, color: '#5a5a6a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  memberCodeBadge: {
+    padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+    background: 'rgba(162,119,255,0.15)', color: '#a277ff',
+    border: '1px solid rgba(162,119,255,0.25)', letterSpacing: 1,
+    fontFamily: 'monospace',
+  },
   badge: (status) => ({
     padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 600,
     background: status === 'active' ? 'rgba(0,245,147,0.12)' : status === 'expired' ? 'rgba(255,51,85,0.12)' : 'rgba(255,214,10,0.12)',
@@ -633,11 +750,16 @@ const s = {
   modalOverlay: { position: 'fixed', inset: 0, zIndex: 1000, display: 'grid', placeItems: 'center', padding: 24, background: 'rgba(0,0,0,0.72)' },
   detailModal: { width: 'min(780px, 94vw)', maxHeight: '88vh', overflow: 'auto', padding: 22, borderRadius: 10, background: '#050509', border: '1px solid rgba(255,255,255,0.10)' },
   detailsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, color: '#d8d8e4', marginBottom: 18 },
+  portalRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 10, background: 'rgba(0,245,212,0.05)', border: '1px solid rgba(0,245,212,0.15)', marginBottom: 18 },
+  portalGrant: { padding: '9px 16px', borderRadius: 8, border: '1px solid rgba(0,245,147,0.3)', background: 'rgba(0,245,147,0.12)', color: '#00f593', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' },
+  portalRevoke: { padding: '9px 16px', borderRadius: 8, border: '1px solid rgba(255,51,85,0.3)', background: 'rgba(255,51,85,0.1)', color: '#ff3355', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' },
   subTitle: { color: '#fff', margin: '10px 0' },
   subActions: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 },
   renewBtn: { padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(0,245,147,0.25)', background: 'rgba(0,245,147,0.12)', color: '#00f593', fontSize: 12, fontWeight: 700, cursor: 'pointer' },
   changeBtn: { padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(0,170,255,0.25)', background: 'rgba(0,170,255,0.12)', color: '#00aaff', fontSize: 12, fontWeight: 700, cursor: 'pointer' },
   actionPanel: { marginBottom: 14, padding: 14, borderRadius: 10, background: '#071426', border: '1px solid rgba(255,255,255,0.10)' },
+  dateField: { display: 'flex', flexDirection: 'column', gap: 4 },
+  dateLabel: { fontSize: 10, color: '#00f593', fontWeight: 700 },
   actionTitle: { color: '#fff', fontSize: 15, fontWeight: 800, marginBottom: 4 },
   actionHint: { color: '#8a8a9a', fontSize: 12, margin: '0 0 12px' },
   actionGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 },

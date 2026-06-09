@@ -1,28 +1,22 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../context/I18nContext'
 import { formatCurrency } from '../utils/currency'
-import { memberStatusLabel, paymentStatusLabel } from '../utils/displayLabels'
 import { useToast } from '../context/ToastContext'
 import api from '../api/axios'
-
-const TAB = 'tab'
 
 export default function MemberPortalPage() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useState('home')
   const navigate = useNavigate()
-  const { t, locale } = useI18n()
+  const { locale } = useI18n()
   const { toast } = useToast()
-  const isRtl = locale === 'ar'
+  const ar = locale === 'ar'
 
   useEffect(() => {
     const role = localStorage.getItem('role') || 'admin'
-    if (role !== 'member') {
-      navigate('/')
-      return
-    }
+    if (role !== 'member') { navigate('/'); return }
     load()
   }, [])
 
@@ -31,352 +25,339 @@ export default function MemberPortalPage() {
       const res = await api.get('/member-portal/me')
       setData(res.data)
     } catch {
-      toast(isRtl ? 'تعذر تحميل بيانات العضو' : 'Error loading portal data', 'error')
+      toast(ar ? 'تعذر تحميل البيانات' : 'Error loading data', 'error')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('role')
-    localStorage.removeItem('member_id')
-    navigate('/login')
-  }
+  const handleLogout = () => { localStorage.clear(); navigate('/login') }
 
-  const daysRemaining = (end) => Math.ceil((new Date(end) - new Date()) / (1000 * 60 * 60 * 24))
-  const isActive = (end) => daysRemaining(end) > 0
-
-  const tabs = [
-    { key: 'overview', label: isRtl ? 'نظرة عامة' : 'Overview', icon: '📊' },
-    { key: 'subscriptions', label: t('subscriptions.title'), icon: '🔖' },
-    { key: 'appointments', label: t('appointments.title'), icon: '📅' },
-    { key: 'workouts', label: t('workouts.title'), icon: '💪' },
-    { key: 'nutrition', label: t('nutrition.title'), icon: '🥗' },
-  ]
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString(ar ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'
+  const fmtDateTime = (d) => d ? new Date(d).toLocaleString(ar ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-'
 
   if (loading) {
-    return (
-      <div style={s.loadingWrap}>
-        <div style={s.spinner}></div>
-        <div style={{ color: '#666', marginTop: 16 }}>{t('common.loading')}</div>
-      </div>
-    )
+    return <div style={s.phone}><div style={s.loadingWrap}><div style={s.spinner} /><div style={{ color: '#6b6b80', marginTop: 16, fontSize: 14 }}>{ar ? 'جارٍ التحميل...' : 'Loading...'}</div></div></div>
   }
-
   if (!data) {
-    return (
-      <div style={s.loadingWrap}>
-        <div style={{ color: '#e74c3c', fontSize: 18 }}>{isRtl ? 'حدث خطأ في تحميل البيانات' : 'Error loading data'}</div>
-      </div>
-    )
+    return <div style={s.phone}><div style={s.loadingWrap}><div style={{ color: '#ff3355', fontSize: 16 }}>{ar ? 'حدث خطأ' : 'Error'}</div></div></div>
   }
 
-  const { member, subscriptions, appointments, workout_plans, nutrition_plans } = data
+  const { member, summary, alerts, subscriptions, attendance } = data
+  const active = summary.active_subscription
+  const sessionPct = active?.session_count ? Math.round((active.used_sessions / active.session_count) * 100) : 0
+  const statusColor = member.status === 'active' ? '#00f593' : member.status === 'debtor' ? '#ffd60a' : '#ff3355'
+  const statusText = member.status === 'active' ? (ar ? 'نشط' : 'Active') : member.status === 'debtor' ? (ar ? 'مدين' : 'Debtor') : (ar ? 'منتهي' : 'Expired')
 
-  const activeSubs = subscriptions.filter(s => isActive(s.end_date))
-
-  const upcomingAppts = appointments.filter(a => a.status === 'scheduled').slice(0, 3)
-  const pastAppts = appointments.filter(a => a.status !== 'scheduled').slice(0, 3)
+  const navItems = [
+    { key: 'home', icon: '🏠', label: ar ? 'الرئيسية' : 'Home' },
+    { key: 'subscriptions', icon: '🔖', label: ar ? 'اشتراكاتي' : 'Subs' },
+    { key: 'attendance', icon: '✅', label: ar ? 'حضوري' : 'Visits' },
+    { key: 'profile', icon: '👤', label: ar ? 'حسابي' : 'Profile' },
+  ]
 
   return (
-    <div style={s.container}>
-      <div style={s.topbar}>
-        <div style={s.topbarLeft}>
-          <span style={s.logo}>💪</span>
-          <span style={s.appTitle}>{t('app.title')}</span>
-        </div>
-        <div style={s.topbarRight}>
-          <span style={s.memberName}>{member.name}</span>
-          <button onClick={handleLogout} style={s.logoutBtn}>🚪 {t('nav.logout')}</button>
-        </div>
-      </div>
+    <div style={{ ...s.phone, direction: ar ? 'rtl' : 'ltr' }}>
+      <div style={s.neon} />
 
-      <div style={s.header}>
-        <div style={s.avatarWrap}>
-          <div style={s.avatar}>{member.name?.charAt(0) || '?'}</div>
-          <div>
-            <h1 style={s.greeting}>{isRtl ? `مرحباً، ${member.name}` : `Welcome, ${member.name}`}</h1>
-            <div style={s.statusRow}>
-              <span style={{ ...s.statusDot, background: member.status === 'active' ? '#2ecc71' : '#e74c3c' }} />
-              <span style={s.statusText}>{memberStatusLabel(member.status, locale)}</span>
-              <span style={s.separator}>|</span>
-              <span style={{ color: '#888', fontSize: 13 }}>{member.email}</span>
-              <span style={s.separator}>|</span>
-              <span style={{ color: '#888', fontSize: 13 }}>{member.phone}</span>
-            </div>
-          </div>
+      {/* Sticky header */}
+      <header style={s.header}>
+        <div style={s.brand}>
+          <span style={s.logoBox}>💪</span>
+          <span style={s.brandText}>SILVER<span style={{ color: '#00f5d4' }}>GYM</span></span>
         </div>
-      </div>
+        <span style={{ ...s.hStatus, background: `${statusColor}1a`, color: statusColor }}>● {statusText}</span>
+      </header>
 
-      <div style={s.statsRow}>
-        <div style={{ ...s.statCard, borderLeft: '4px solid #667eea' }}>
-          <span style={s.statNum}>{subscriptions.length}</span>
-          <span style={s.statLabel}>{t('subscriptions.title')}</span>
-        </div>
-        <div style={{ ...s.statCard, borderLeft: '4px solid #2ecc71' }}>
-          <span style={s.statNum}>{activeSubs.length}</span>
-          <span style={s.statLabel}>{isRtl ? 'اشتراكات نشطة' : 'Active subscriptions'}</span>
-        </div>
-        <div style={{ ...s.statCard, borderLeft: '4px solid #f39c12' }}>
-          <span style={s.statNum}>{appointments.length}</span>
-          <span style={s.statLabel}>{t('appointments.title')}</span>
-        </div>
-        <div style={{ ...s.statCard, borderLeft: '4px solid #e74c3c' }}>
-          <span style={s.statNum}>{workout_plans.length}</span>
-          <span style={s.statLabel}>{t('workouts.plans')}</span>
-        </div>
-        <div style={{ ...s.statCard, borderLeft: '4px solid #9b59b6' }}>
-          <span style={s.statNum}>{nutrition_plans.length}</span>
-          <span style={s.statLabel}>{t('nutrition.title')}</span>
-        </div>
-      </div>
-
-      <div style={s.tabsWrap}>
-        {tabs.map(tb => (
-          <button
-            key={tb.key}
-            style={{
-              ...s.tab,
-              background: tab === tb.key ? 'linear-gradient(135deg, #667eea, #764ba2)' : 'rgba(255,255,255,0.05)',
-              color: tab === tb.key ? '#fff' : '#aaa',
-            }}
-            onClick={() => setTab(tb.key)}
-          >
-            {tb.icon} {tb.label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ marginTop: 20 }}>
-        {tab === 'overview' && (
-          <div>
-            {activeSubs.length > 0 && (
-              <div style={s.section}>
-                <h3 style={s.sectionTitle}>{isRtl ? 'الاشتراك الحالي' : 'Current Subscription'}</h3>
-                <div style={s.subCard}>
-                  <div style={s.subHeader}>
-                    <span style={s.subPlan}>#{activeSubs[0].plan_id} Plan</span>
-                    <span style={{ ...s.badge, background: 'rgba(46,204,113,0.15)', color: '#2ecc71' }}>● {t('common.active')}</span>
-                  </div>
-                  <div style={s.subDates}>
-                    <span>{activeSubs[0].start_date} → {activeSubs[0].end_date}</span>
-                    <span style={{ color: daysRemaining(activeSubs[0].end_date) <= 7 ? '#e74c3c' : '#2ecc71', fontWeight: 600 }}>
-                      {isRtl ? `${daysRemaining(activeSubs[0].end_date)} يوم متبقي` : `${daysRemaining(activeSubs[0].end_date)}d remaining`}
-                    </span>
+      {/* Scrollable body */}
+      <main style={s.body}>
+        {/* ── HOME ── */}
+        {tab === 'home' && (
+          <div style={s.stack}>
+            {/* Member card */}
+            <section style={s.hero}>
+              <div style={s.heroGlow} />
+              <div style={s.heroInner}>
+                <div style={s.avatar}>{member.name?.charAt(0)?.toUpperCase() || '?'}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h1 style={s.name}>{member.name}</h1>
+                  <div style={s.metaRow}>
+                    {member.member_code && <span style={s.codeBadge}>#{member.member_code}</span>}
+                    <span style={s.metaText}>📱 {member.phone}</span>
                   </div>
                 </div>
               </div>
+            </section>
+
+            {/* Alerts */}
+            {alerts.map((a, i) => (
+              <div key={i} style={{ ...s.alert, ...(a.level === 'danger' ? s.alertDanger : s.alertWarn) }}>
+                <span style={{ fontSize: 16 }}>{a.level === 'danger' ? '⚠️' : '🔔'}</span>
+                <span>{ar ? a.ar : a.en}</span>
+              </div>
+            ))}
+
+            {/* Active subscription */}
+            {active ? (
+              <section style={s.card}>
+                <div style={s.subTop}>
+                  <div>
+                    <div style={s.subPlanName}>{active.plan_name}</div>
+                    <div style={s.subPeriod}>{fmtDate(active.start_date)} → {fmtDate(active.end_date)}</div>
+                  </div>
+                  <span style={s.activeBadge}>● {ar ? 'نشط' : 'Active'}</span>
+                </div>
+
+                <div style={s.metricsRow}>
+                  <div style={s.metric}>
+                    <span style={{ ...s.metricNum, color: active.days_remaining <= 7 ? '#ffd60a' : '#00f593' }}>{active.days_remaining}</span>
+                    <span style={s.metricLabel}>{ar ? 'يوم متبقي' : 'days left'}</span>
+                  </div>
+                  <div style={s.metric}>
+                    <span style={{ ...s.metricNum, color: '#00f5d4' }}>{active.session_count ? active.remaining_sessions : '∞'}</span>
+                    <span style={s.metricLabel}>{ar ? 'جلسة متبقية' : 'sessions'}</span>
+                  </div>
+                  <div style={s.metric}>
+                    <span style={{ ...s.metricNum, color: '#a277ff' }}>{summary.total_attendance}</span>
+                    <span style={s.metricLabel}>{ar ? 'الحضور' : 'visits'}</span>
+                  </div>
+                </div>
+
+                {active.session_count ? (
+                  <div style={s.progWrap}>
+                    <div style={s.progHead}>
+                      <span>{ar ? 'الجلسات المستخدمة' : 'Sessions used'}</span>
+                      <span>{active.used_sessions} / {active.session_count}</span>
+                    </div>
+                    <div style={s.progBar}><div style={{ ...s.progFill, width: `${sessionPct}%` }} /></div>
+                  </div>
+                ) : null}
+
+                <div style={s.payBox}>
+                  <div style={s.payRow}><span style={s.payLabel}>{ar ? 'المدفوع' : 'Paid'}</span><b style={{ color: '#00f593' }}>{formatCurrency(active.amount_paid)}</b></div>
+                  <div style={s.payRow}><span style={s.payLabel}>{ar ? 'المطلوب' : 'Required'}</span><b style={{ color: '#e8e8f0' }}>{formatCurrency(active.expected)}</b></div>
+                  <div style={s.payRow}><span style={s.payLabel}>{ar ? 'المتبقي' : 'Remaining'}</span><b style={{ color: active.remaining_money > 0 ? '#ff3355' : '#00f593' }}>{formatCurrency(active.remaining_money)}</b></div>
+                </div>
+              </section>
+            ) : (
+              <section style={s.emptyState}>
+                <div style={{ fontSize: 44 }}>🔖</div>
+                <div style={{ color: '#e8e8f0', fontWeight: 700, marginTop: 8 }}>{ar ? 'لا يوجد اشتراك نشط' : 'No active subscription'}</div>
+                <div style={{ color: '#6b6b80', fontSize: 13, marginTop: 4 }}>{ar ? 'يرجى مراجعة الاستقبال للتجديد' : 'Visit reception to renew'}</div>
+              </section>
             )}
 
-            {upcomingAppts.length > 0 && (
-              <div style={s.section}>
-                <h3 style={s.sectionTitle}>{isRtl ? 'المواعيد القادمة' : 'Upcoming Appointments'}</h3>
-                <div style={s.grid2}>
-                  {upcomingAppts.map(a => (
-                    <div key={a.id} style={s.apptCard}>
-                      <div style={s.apptDate}>{a.date}</div>
-                      <div style={s.apptTime}>{a.time} • {a.duration} {t('appointments.min')}</div>
-                      <span style={{ ...s.badge, background: 'rgba(102,126,234,0.15)', color: '#667eea' }}>{t(`appointments.${a.type}`, a.type)}</span>
-                    </div>
-                  ))}
+            {/* Recent visits preview */}
+            {attendance.length > 0 && (
+              <section style={s.card}>
+                <div style={s.previewHead}>
+                  <h3 style={s.previewTitle}>✅ {ar ? 'آخر الزيارات' : 'Recent visits'}</h3>
+                  <button style={s.linkBtn} onClick={() => setTab('attendance')}>{ar ? 'عرض الكل' : 'All'} →</button>
                 </div>
-              </div>
-            )}
-
-            {workout_plans.length > 0 && (
-              <div style={s.section}>
-                <h3 style={s.sectionTitle}>{t('workouts.plans')}</h3>
-                <div style={s.grid2}>
-                  {workout_plans.map(w => (
-                    <div key={w.id} style={s.card}>
-                      <div style={s.cardTitle}>{w.name}</div>
-                      <div style={s.cardMeta}>{w.days_per_week} {isRtl ? 'أيام/أسبوع' : 'days/week'}</div>
-                      {w.exercises && <div style={s.cardDesc}>🏋️ {w.exercises}</div>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {nutrition_plans.length > 0 && (
-              <div style={s.section}>
-                <h3 style={s.sectionTitle}>{t('nutrition.title')}</h3>
-                <div style={s.grid2}>
-                  {nutrition_plans.map(n => (
-                    <div key={n.id} style={s.card}>
-                      <div style={s.cardTitle}>{t(`nutrition.${n.goal}`, n.goal)}</div>
-                      <div style={s.macroRow}>
-                        <span style={s.macro}>{n.calories} <span style={{ color: '#666' }}>cal</span></span>
-                        <span style={s.macro}>{n.protein_g}g <span style={{ color: '#666' }}>protein</span></span>
-                        <span style={s.macro}>{n.carbs_g}g <span style={{ color: '#666' }}>carbs</span></span>
-                        <span style={s.macro}>{n.fats_g}g <span style={{ color: '#666' }}>fats</span></span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                {attendance.slice(0, 3).map(a => (
+                  <div key={a.id} style={s.visitRow}>
+                    <span style={s.visitDot} />
+                    <span style={{ color: '#e8e8f0', fontSize: 13, flex: 1 }}>{fmtDateTime(a.checked_in_at)}</span>
+                    <span style={s.visitCheck}>✓</span>
+                  </div>
+                ))}
+              </section>
             )}
           </div>
         )}
 
+        {/* ── SUBSCRIPTIONS ── */}
         {tab === 'subscriptions' && (
-          <div>
+          <div style={s.stack}>
+            <h2 style={s.pageTitle}>🔖 {ar ? 'اشتراكاتي' : 'My Subscriptions'}</h2>
             {subscriptions.length === 0 ? (
-              <div style={s.empty}>{isRtl ? 'لا يوجد اشتراكات' : 'No subscriptions'}</div>
-            ) : subscriptions.map(s => (
-              <div key={s.id} style={s.subCard}>
-                <div style={s.subHeader}>
-                  <span style={s.subPlan}>#{s.plan_id}</span>
-                  <span style={{ ...s.badge, background: isActive(s.end_date) ? 'rgba(46,204,113,0.15)' : 'rgba(231,76,60,0.15)', color: isActive(s.end_date) ? '#2ecc71' : '#e74c3c' }}>
-                    {isActive(s.end_date) ? `● ${t('common.active')}` : `○ ${t('members.statusExpired')}`}
+              <section style={s.emptyState}><div style={{ fontSize: 40 }}>🔖</div><div style={{ color: '#6b6b80', marginTop: 8 }}>{ar ? 'لا يوجد اشتراكات' : 'No subscriptions'}</div></section>
+            ) : subscriptions.map(sub => (
+              <section key={sub.id} style={s.card}>
+                <div style={s.subTop}>
+                  <div>
+                    <div style={s.subPlanName}>{sub.plan_name}</div>
+                    <div style={s.subPeriod}>{fmtDate(sub.start_date)} → {fmtDate(sub.end_date)}</div>
+                  </div>
+                  <span style={{ ...s.activeBadge, ...(sub.is_active ? {} : s.inactiveBadge) }}>
+                    {sub.is_active ? `● ${ar ? 'نشط' : 'Active'}` : `○ ${ar ? 'منتهي' : 'Ended'}`}
                   </span>
                 </div>
-                <div style={s.subDates}>{s.start_date} → {s.end_date}</div>
-                <div style={s.subMeta}>
-                  <span>{formatCurrency(s.amount_paid)}</span>
-                  <span style={{ color: s.payment_status === 'paid' ? '#2ecc71' : '#e74c3c' }}>{paymentStatusLabel(s.payment_status, locale)}</span>
+                <div style={s.subDetailGrid}>
+                  <div><span style={s.dLabel}>{ar ? 'مدفوع' : 'Paid'}</span><b style={{ color: '#00f593' }}>{formatCurrency(sub.amount_paid)}</b></div>
+                  <div><span style={s.dLabel}>{ar ? 'المطلوب' : 'Required'}</span><b style={{ color: '#e8e8f0' }}>{formatCurrency(sub.expected)}</b></div>
+                  <div><span style={s.dLabel}>{ar ? 'المتبقي' : 'Remaining'}</span><b style={{ color: sub.remaining_money > 0 ? '#ff3355' : '#00f593' }}>{formatCurrency(sub.remaining_money)}</b></div>
+                  <div><span style={s.dLabel}>{ar ? 'الجلسات' : 'Sessions'}</span><b style={{ color: '#00f5d4' }}>{sub.session_count ? `${sub.remaining_sessions}/${sub.session_count}` : '∞'}</b></div>
                 </div>
-                {s.notes && <div style={s.cardDesc}>📝 {s.notes}</div>}
-              </div>
+              </section>
             ))}
           </div>
         )}
 
-        {tab === 'appointments' && (
-          <div>
-            {appointments.length === 0 ? (
-              <div style={s.empty}>{isRtl ? 'لا يوجد مواعيد' : 'No appointments'}</div>
+        {/* ── ATTENDANCE ── */}
+        {tab === 'attendance' && (
+          <div style={s.stack}>
+            <h2 style={s.pageTitle}>✅ {ar ? 'سجل حضوري' : 'My Attendance'}</h2>
+            {attendance.length === 0 ? (
+              <section style={s.emptyState}><div style={{ fontSize: 40 }}>✅</div><div style={{ color: '#6b6b80', marginTop: 8 }}>{ar ? 'لا يوجد سجل حضور' : 'No attendance yet'}</div></section>
             ) : (
-              <div style={s.grid2}>
-                {appointments.map(a => (
-                  <div key={a.id} style={s.apptCard}>
-                    <div style={s.apptDate}>{a.date}</div>
-                    <div style={s.apptTime}>{a.time} • {a.duration} {t('appointments.min')}</div>
-                    <div style={s.apptMeta}>
-                      <span style={{ ...s.badge, background: 'rgba(102,126,234,0.15)', color: '#667eea' }}>{t(`appointments.${a.type}`, a.type)}</span>
-                      <span style={{ ...s.badge,
-                        background: a.status === 'scheduled' ? 'rgba(46,204,113,0.15)' : a.status === 'completed' ? 'rgba(52,152,219,0.15)' : 'rgba(231,76,60,0.15)',
-                        color: a.status === 'scheduled' ? '#2ecc71' : a.status === 'completed' ? '#3498db' : '#e74c3c',
-                      }}>
-                        {t(`appointments.${a.status}`, a.status)}
-                      </span>
+              <section style={s.card}>
+                <div style={s.attendHead}>
+                  <span>{ar ? 'إجمالي الزيارات' : 'Total visits'}</span>
+                  <b style={{ color: '#00f593', fontSize: 22 }}>{summary.total_attendance}</b>
+                </div>
+                {attendance.map(a => (
+                  <div key={a.id} style={s.visitRow}>
+                    <span style={s.visitDot} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: '#e8e8f0', fontSize: 13, fontWeight: 600 }}>{fmtDateTime(a.checked_in_at)}</div>
+                      {a.note && <div style={{ color: '#6b6b80', fontSize: 11 }}>{a.note}</div>}
                     </div>
-                    {a.notes && <div style={s.cardDesc}>📝 {a.notes}</div>}
+                    <span style={s.visitCheck}>✓</span>
                   </div>
                 ))}
-              </div>
+              </section>
             )}
           </div>
         )}
 
-        {tab === 'workouts' && (
-          <div>
-            {workout_plans.length === 0 ? (
-              <div style={s.empty}>{isRtl ? 'لا يوجد خطط تدريب' : 'No workout plans'}</div>
-            ) : (
-              <div style={s.grid2}>
-                {workout_plans.map(w => (
-                  <div key={w.id} style={s.card}>
-                    <div style={s.cardIcon}>💪</div>
-                    <div style={s.cardTitle}>{w.name}</div>
-                    <div style={s.cardMeta}>{w.days_per_week} {isRtl ? 'أيام/أسبوع' : 'days/week'}</div>
-                    {w.exercises && <div style={s.cardDesc}>🏋️ {w.exercises}</div>}
-                    {w.notes && <div style={{ ...s.cardDesc, color: '#888' }}>📝 {w.notes}</div>}
+        {/* ── PROFILE ── */}
+        {tab === 'profile' && (
+          <div style={s.stack}>
+            <h2 style={s.pageTitle}>👤 {ar ? 'حسابي' : 'My Profile'}</h2>
+            <section style={s.hero}>
+              <div style={s.heroGlow} />
+              <div style={s.heroInner}>
+                <div style={s.avatar}>{member.name?.charAt(0)?.toUpperCase() || '?'}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h1 style={s.name}>{member.name}</h1>
+                  <div style={s.metaRow}>
+                    {member.member_code && <span style={s.codeBadge}>#{member.member_code}</span>}
+                    <span style={{ ...s.hStatus, background: `${statusColor}1a`, color: statusColor }}>● {statusText}</span>
                   </div>
-                ))}
+                </div>
               </div>
-            )}
-          </div>
-        )}
+            </section>
 
-        {tab === 'nutrition' && (
-          <div>
-            {nutrition_plans.length === 0 ? (
-              <div style={s.empty}>{isRtl ? 'لا يوجد خطط تغذية' : 'No nutrition plans'}</div>
-            ) : (
-              <div style={s.grid2}>
-                {nutrition_plans.map(n => (
-                  <div key={n.id} style={s.card}>
-                    <div style={s.cardIcon}>🥗</div>
-                    <div style={s.cardTitle}>{t(`nutrition.${n.goal}`, n.goal)}</div>
-                    <div style={s.macroRow}>
-                      <span style={s.macro}>{n.calories} <span style={{ color: '#666' }}>cal</span></span>
-                      <span style={s.macro}>{n.protein_g}g <span style={{ color: '#666' }}>P</span></span>
-                      <span style={s.macro}>{n.carbs_g}g <span style={{ color: '#666' }}>C</span></span>
-                      <span style={s.macro}>{n.fats_g}g <span style={{ color: '#666' }}>F</span></span>
-                    </div>
-                    <div style={s.mealsInfo}>{n.meals_per_day} {isRtl ? 'وجبات/يوم' : 'meals/day'}</div>
-                    {n.meal_plan && <div style={s.cardDesc}>📋 {n.meal_plan}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
+            <section style={s.card}>
+              {[
+                ['📱', ar ? 'الهاتف' : 'Phone', member.phone],
+                ['✉️', ar ? 'البريد' : 'Email', member.email || '-'],
+                ['⚧', ar ? 'الجنس' : 'Gender', member.gender === 'male' ? (ar ? 'ذكر' : 'Male') : member.gender === 'female' ? (ar ? 'أنثى' : 'Female') : '-'],
+                ['🎂', ar ? 'العمر' : 'Age', member.age || '-'],
+                ['📍', ar ? 'العنوان' : 'Address', member.address || '-'],
+                ['🆘', ar ? 'طوارئ' : 'Emergency', member.emergency_phone || '-'],
+              ].map(([icon, label, val], i) => (
+                <div key={i} style={s.infoRow}>
+                  <span style={s.infoIcon}>{icon}</span>
+                  <span style={s.infoLabel}>{label}</span>
+                  <span style={s.infoVal}>{val}</span>
+                </div>
+              ))}
+            </section>
+
+            <button onClick={handleLogout} style={s.logoutFull}>🚪 {ar ? 'تسجيل الخروج' : 'Logout'}</button>
           </div>
         )}
-      </div>
+      </main>
+
+      {/* Bottom navigation */}
+      <nav style={s.bottomNav}>
+        {navItems.map(item => {
+          const activeTab = tab === item.key
+          return (
+            <button key={item.key} onClick={() => setTab(item.key)} style={s.navBtn}>
+              <span style={{ ...s.navIcon, ...(activeTab ? s.navIconActive : {}) }}>{item.icon}</span>
+              <span style={{ ...s.navLabel, color: activeTab ? '#00f5d4' : '#6b6b80' }}>{item.label}</span>
+              {activeTab && <span style={s.navDot} />}
+            </button>
+          )
+        })}
+      </nav>
     </div>
   )
 }
 
+const card = { background: 'rgba(20,20,35,0.7)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18 }
+
 const s = {
-  container: { minHeight: '100vh', background: '#0f0f1a', color: '#fff' },
-  loadingWrap: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0f0f1a' },
-  spinner: { width: 40, height: 40, border: '3px solid rgba(255,255,255,0.05)', borderTop: '3px solid #667eea', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
+  // Phone frame — centered mobile width on desktop, full on mobile
+  phone: { maxWidth: 460, margin: '0 auto', minHeight: '100vh', background: '#08080e', color: '#fff', position: 'relative', boxShadow: '0 0 60px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column' },
+  neon: { height: 3, background: 'linear-gradient(90deg, transparent, #00f5d4 30%, #a277ff 50%, #00f5d4 70%, transparent)', flexShrink: 0 },
 
-  topbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 32px', background: 'rgba(20,20,35,0.95)', borderBottom: '1px solid rgba(255,255,255,0.06)' },
-  topbarLeft: { display: 'flex', alignItems: 'center', gap: 10 },
-  logo: { fontSize: 24 },
-  appTitle: { fontSize: 16, fontWeight: 700, color: '#fff' },
-  topbarRight: { display: 'flex', alignItems: 'center', gap: 16 },
-  memberName: { fontSize: 14, color: '#aaa' },
-  logoutBtn: { padding: '8px 16px', background: 'rgba(231,76,60,0.1)', border: 'none', borderRadius: 8, color: '#e74c3c', cursor: 'pointer', fontSize: 13, fontWeight: 500 },
+  loadingWrap: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: '80vh' },
+  spinner: { width: 42, height: 42, border: '3px solid rgba(255,255,255,0.06)', borderTop: '3px solid #00f5d4', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
 
-  header: { padding: '32px 32px 0' },
-  avatarWrap: { display: 'flex', alignItems: 'center', gap: 20 },
-  avatar: { width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg, #667eea, #764ba2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 700, color: '#fff' },
-  greeting: { fontSize: 24, fontWeight: 700, color: '#fff', margin: 0 },
-  statusRow: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 },
-  statusDot: { width: 8, height: 8, borderRadius: '50%', display: 'inline-block' },
-  statusText: { fontSize: 13, color: '#aaa' },
-  separator: { color: '#333', fontSize: 12 },
+  header: { position: 'sticky', top: 0, zIndex: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: 'rgba(8,8,14,0.92)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 },
+  brand: { display: 'flex', alignItems: 'center', gap: 9 },
+  logoBox: { width: 32, height: 32, borderRadius: 9, background: 'linear-gradient(135deg, rgba(0,245,212,0.15), rgba(162,119,255,0.12))', display: 'grid', placeItems: 'center', fontSize: 16 },
+  brandText: { fontSize: 16, fontWeight: 800, letterSpacing: '1.2px', color: '#e8e8f0' },
+  hStatus: { padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700 },
 
-  statsRow: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, padding: '24px 32px 0' },
-  statCard: { background: 'rgba(20,20,35,0.6)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 4 },
-  statNum: { fontSize: 28, fontWeight: 800, color: '#fff' },
-  statLabel: { fontSize: 12, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  body: { flex: 1, overflowY: 'auto', padding: '16px 16px 90px' },
+  stack: { display: 'grid', gap: 13 },
+  pageTitle: { fontSize: 18, fontWeight: 800, color: '#fff', margin: '4px 2px 2px' },
 
-  tabsWrap: { display: 'flex', gap: 8, padding: '24px 32px 0', flexWrap: 'wrap' },
-  tab: { padding: '10px 20px', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
+  hero: { ...card, position: 'relative', overflow: 'hidden', padding: 18 },
+  heroGlow: { position: 'absolute', top: -40, insetInlineEnd: -40, width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,245,212,0.18), transparent 70%)' },
+  heroInner: { display: 'flex', alignItems: 'center', gap: 14, position: 'relative' },
+  avatar: { width: 58, height: 58, borderRadius: 16, background: 'linear-gradient(135deg, #00f5d4, #a277ff)', display: 'grid', placeItems: 'center', fontSize: 25, fontWeight: 800, color: '#08080e', flexShrink: 0 },
+  name: { fontSize: 20, fontWeight: 800, margin: 0, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  metaRow: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' },
+  codeBadge: { background: 'rgba(162,119,255,0.15)', color: '#a277ff', padding: '3px 9px', borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: 'monospace' },
+  metaText: { color: '#9b9bb0', fontSize: 12 },
 
-  section: { marginBottom: 28 },
-  sectionTitle: { fontSize: 16, fontWeight: 600, color: '#fff', marginBottom: 12 },
+  alert: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', borderRadius: 13, fontSize: 12.5, fontWeight: 600 },
+  alertWarn: { background: 'rgba(255,214,10,0.08)', border: '1px solid rgba(255,214,10,0.22)', color: '#ffd60a' },
+  alertDanger: { background: 'rgba(255,51,85,0.08)', border: '1px solid rgba(255,51,85,0.22)', color: '#ff6680' },
 
-  grid2: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 },
+  card: { ...card, padding: 18 },
+  subTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 10 },
+  subPlanName: { fontSize: 16, fontWeight: 700, color: '#fff' },
+  subPeriod: { fontSize: 11.5, color: '#9b9bb0', marginTop: 4 },
+  activeBadge: { padding: '4px 11px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: 'rgba(0,245,147,0.15)', color: '#00f593', whiteSpace: 'nowrap' },
+  inactiveBadge: { background: 'rgba(255,51,85,0.12)', color: '#ff6680' },
 
-  subCard: { background: 'rgba(20,20,35,0.6)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: 20, marginBottom: 12 },
-  subHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  subPlan: { fontSize: 16, fontWeight: 600, color: '#fff' },
-  subDates: { fontSize: 13, color: '#888', display: 'flex', justifyContent: 'space-between', marginBottom: 8 },
-  subMeta: { display: 'flex', gap: 16, fontSize: 14, color: '#ccc' },
+  metricsRow: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 9, marginBottom: 15 },
+  metric: { background: 'rgba(255,255,255,0.03)', borderRadius: 13, padding: '13px 6px', textAlign: 'center' },
+  metricNum: { display: 'block', fontSize: 24, fontWeight: 800, lineHeight: 1 },
+  metricLabel: { fontSize: 10.5, color: '#9b9bb0', marginTop: 5, display: 'block' },
 
-  apptCard: { background: 'rgba(20,20,35,0.6)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: 20 },
-  apptDate: { fontSize: 16, fontWeight: 600, color: '#fff', marginBottom: 4 },
-  apptTime: { fontSize: 13, color: '#888', marginBottom: 8 },
-  apptMeta: { display: 'flex', gap: 6 },
+  progWrap: { marginBottom: 15 },
+  progHead: { display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: '#9b9bb0', marginBottom: 6 },
+  progBar: { height: 8, background: 'rgba(255,255,255,0.06)', borderRadius: 20, overflow: 'hidden' },
+  progFill: { height: '100%', background: 'linear-gradient(90deg, #00f5d4, #a277ff)', borderRadius: 20 },
 
-  card: { background: 'rgba(20,20,35,0.6)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: 20 },
-  cardIcon: { fontSize: 28, marginBottom: 8 },
-  cardTitle: { fontSize: 16, fontWeight: 600, color: '#fff', marginBottom: 4 },
-  cardMeta: { fontSize: 13, color: '#888', marginBottom: 8 },
-  cardDesc: { fontSize: 12, color: '#aaa', lineHeight: 1.5, marginTop: 4 },
+  payBox: { background: 'rgba(255,255,255,0.03)', borderRadius: 13, padding: 14, display: 'grid', gap: 10 },
+  payRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 },
+  payLabel: { color: '#9b9bb0' },
 
-  macroRow: { display: 'flex', gap: 12, marginBottom: 8, flexWrap: 'wrap' },
-  macro: { fontSize: 14, fontWeight: 600, color: '#ccc' },
-  mealsInfo: { fontSize: 12, color: '#888', marginBottom: 8 },
+  subDetailGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 },
+  dLabel: { display: 'block', fontSize: 11, color: '#9b9bb0', marginBottom: 3 },
 
-  badge: { padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, display: 'inline-block' },
-  empty: { textAlign: 'center', padding: 60, color: '#666', fontSize: 14 },
+  emptyState: { ...card, padding: 36, textAlign: 'center' },
 
-  content: { padding: '0 32px 32px' },
+  previewHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  previewTitle: { fontSize: 14, fontWeight: 700, color: '#fff', margin: 0 },
+  linkBtn: { background: 'none', border: 'none', color: '#00f5d4', cursor: 'pointer', fontSize: 12, fontWeight: 600 },
+
+  attendHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 13, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.06)', color: '#9b9bb0', fontSize: 13 },
+  visitRow: { display: 'flex', alignItems: 'center', gap: 11, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' },
+  visitDot: { width: 8, height: 8, borderRadius: '50%', background: '#00f593', flexShrink: 0, boxShadow: '0 0 8px rgba(0,245,147,0.5)' },
+  visitCheck: { color: '#00f593', fontWeight: 800, fontSize: 14 },
+
+  infoRow: { display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' },
+  infoIcon: { fontSize: 16, width: 22, textAlign: 'center' },
+  infoLabel: { color: '#9b9bb0', fontSize: 13, flex: 1 },
+  infoVal: { color: '#e8e8f0', fontSize: 13, fontWeight: 600, textAlign: 'end', maxWidth: '55%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+
+  logoutFull: { width: '100%', padding: '14px', background: 'rgba(255,51,85,0.1)', border: '1px solid rgba(255,51,85,0.22)', borderRadius: 13, color: '#ff3355', cursor: 'pointer', fontSize: 14, fontWeight: 700, marginTop: 4 },
+
+  // Bottom navigation bar
+  bottomNav: { position: 'sticky', bottom: 0, zIndex: 20, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', background: 'rgba(10,10,18,0.96)', backdropFilter: 'blur(14px)', borderTop: '1px solid rgba(255,255,255,0.07)', paddingBottom: 'env(safe-area-inset-bottom, 0px)', flexShrink: 0 },
+  navBtn: { position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '10px 0 12px', background: 'none', border: 'none', cursor: 'pointer' },
+  navIcon: { fontSize: 20, opacity: 0.5, transition: 'all 0.2s' },
+  navIconActive: { opacity: 1, transform: 'scale(1.12)', filter: 'drop-shadow(0 0 6px rgba(0,245,212,0.4))' },
+  navLabel: { fontSize: 10, fontWeight: 700 },
+  navDot: { position: 'absolute', top: 3, width: 4, height: 4, borderRadius: '50%', background: '#00f5d4', boxShadow: '0 0 6px #00f5d4' },
 }

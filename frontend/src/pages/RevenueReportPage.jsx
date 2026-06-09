@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { getRevenueReport, getPendingPayments, collectPayment } from '../api/subscriptions'
+import { getRevenueReport, getPendingPayments, getOverpayments, collectPayment, getExportDetails } from '../api/subscriptions'
 import { useI18n } from '../context/I18nContext'
 import { useToast } from '../context/ToastContext'
 import { formatCurrency } from '../utils/currency'
+import { exportToExcel } from '../utils/exportExcel'
+import { DownloadIcon } from 'lucide-react'
 
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)
-const firstOfYear = () => new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10)
+const firstOfMonth = () => today().slice(0, 8) + '01'
 
 const methodLabel = (m, locale) => {
   const ar = { cash: 'كاش', bank_palestine: 'بنك فلسطين', pal_pay: 'محفظة بال باي', jawwal_pay: 'محفظة جوال', mal_chat: 'محفظة مال شات', other_banks: 'بنوك أخرى', unknown: 'غير محدد' }
@@ -23,17 +25,18 @@ export default function RevenueReportPage() {
   // ── Report state ──────────────────────────────────────────
   const [report, setReport] = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
-  const [startDate, setStartDate] = useState(firstOfYear())
+  const [startDate, setStartDate] = useState(firstOfMonth())
   const [endDate, setEndDate]     = useState(today())
 
   // ── Pending state ─────────────────────────────────────────
   const [pending, setPending]         = useState([])
+  const [overpayments, setOverpayments] = useState([])
   const [pendingLoading, setPendingLoading] = useState(false)
   const [search, setSearch]           = useState('')
 
   // ── Collect modal state ───────────────────────────────────
   const [collectItem, setCollectItem] = useState(null)
-  const [collectForm, setCollectForm] = useState({ amount: '', payment_method: 'cash', payment_account: '', notes: '' })
+  const [collectForm, setCollectForm] = useState({ payment_date: today(), amount: '', payment_method: 'cash', payment_account: '', notes: '' })
   const [collectLoading, setCollectLoading] = useState(false)
 
   // ── Loaders ───────────────────────────────────────────────
@@ -59,12 +62,15 @@ export default function RevenueReportPage() {
 
   useEffect(() => { loadReport() }, [loadReport])
   useEffect(() => { loadPending() }, [loadPending])
+  useEffect(() => {
+    getOverpayments().then((res) => setOverpayments(res.data.items || [])).catch(() => setOverpayments([]))
+  }, [])
 
   // ── Collect payment ───────────────────────────────────────
   const openCollect = (item) => {
     if (item.remaining_amount <= 0) return
     setCollectItem(item)
-    setCollectForm({ amount: item.remaining_amount.toFixed(2), payment_method: item.payment_method || 'cash', payment_account: '', notes: '' })
+    setCollectForm({ payment_date: today(), amount: item.remaining_amount.toFixed(2), payment_method: item.payment_method || 'cash', payment_account: '', notes: '' })
   }
 
   const submitCollect = async (e) => {
@@ -74,6 +80,7 @@ export default function RevenueReportPage() {
     try {
       await collectPayment(collectItem.id, {
         amount: parseFloat(collectForm.amount),
+        payment_date: collectForm.payment_date,
         payment_method: collectForm.payment_method,
         payment_account: collectForm.payment_account || null,
         notes: collectForm.notes || null,
@@ -86,6 +93,37 @@ export default function RevenueReportPage() {
       toast(t('revenue.collectError'), 'error')
     } finally {
       setCollectLoading(false)
+    }
+  }
+
+  // ── Excel export ─────────────────────────────────────────
+  const [exporting, setExporting] = useState(false)
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const res = await getExportDetails({ start_date: startDate || undefined, end_date: endDate || undefined })
+      const isAr = locale === 'ar'
+      const methodMap = { cash: 'كاش', bank_palestine: 'بنك فلسطين', pal_pay: 'بال باي', jawwal_pay: 'جوال', mal_chat: 'مال شات', other_banks: 'بنوك أخرى' }
+      const statusMap = { paid: 'مدفوع', partial: 'جزئي', unpaid: 'غير مدفوع' }
+      const data = res.data.items.map(r => ({
+        ...r,
+        payment_method: methodMap[r.payment_method] || r.payment_method,
+        payment_status: statusMap[r.payment_status] || r.payment_status,
+      }))
+      exportToExcel({
+        data,
+        headers: ['payment_date','member_name','member_phone','plan_name','start_date','end_date','amount_paid','discount','expected','remaining','payment_status','payment_method','renewal_status','notes'],
+        labels:  isAr
+          ? ['تاريخ الدفع','اسم العضو','الهاتف','الباقة','تاريخ البداية','تاريخ النهاية','المدفوع','الخصم','المطلوب','المتبقي','حالة الدفع','طريقة الدفع','حالة التجديد','ملاحظات']
+          : ['Payment date','Member','Phone','Plan','Start','End','Paid','Discount','Expected','Remaining','Status','Method','Renewal','Notes'],
+        filename: `revenue-${startDate || 'all'}-${endDate || 'all'}`,
+        sheet: isAr ? 'الإيرادات' : 'Revenue',
+      })
+      toast(isAr ? 'تم التصدير بنجاح' : 'Exported successfully', 'success')
+    } catch {
+      toast(locale === 'ar' ? 'تعذر التصدير' : 'Export failed', 'error')
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -115,16 +153,37 @@ export default function RevenueReportPage() {
       {/* ════════════════════════════════ REPORT TAB ═══════════════════════════ */}
       {tab === 'report' && (
         <>
-          {/* Date filter */}
+          {/* Date filter + Export */}
           <div style={s.filterRow}>
             <span style={s.filterLabel}>{t('revenue.filterDates')}</span>
             <input style={s.dateInput} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
             <span style={{ color: '#5a5a6a' }}>—</span>
             <input style={s.dateInput} type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            <button style={s.exportBtn} onClick={handleExport} disabled={exporting}>
+              <DownloadIcon size={15} />
+              {exporting ? '...' : (locale === 'ar' ? 'تصدير Excel' : 'Export Excel')}
+            </button>
           </div>
 
           {reportLoading ? <div style={s.loading}><div style={s.spinner} /></div> : report && (
             <>
+              {overpayments.length > 0 && (
+                <section style={s.warningBox}>
+                  <div style={s.warningHead}>
+                    <strong>{locale === 'ar' ? 'دفعات زائدة تحتاج مراجعة' : 'Overpayments need review'}</strong>
+                    <span>{overpayments.length}</span>
+                  </div>
+                  <div style={s.warningList}>
+                    {overpayments.slice(0, 4).map((item) => (
+                      <div key={item.id} style={s.warningRow}>
+                        <span>{item.member_name} - {item.plan_name}</span>
+                        <b>{formatCurrency(item.overpaid_amount)}</b>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {/* Stat cards */}
               <div style={s.statsGrid}>
                 {[
@@ -310,6 +369,13 @@ export default function RevenueReportPage() {
             <form onSubmit={submitCollect} style={s.modalForm}>
               <div style={s.formGrid}>
                 <div style={s.field}>
+                  <label style={s.fieldLabel}>{t('subscriptions.paymentDate')}</label>
+                  <input style={s.input} type="date" value={collectForm.payment_date}
+                    onChange={e => setCollectForm({ ...collectForm, payment_date: e.target.value })}
+                    required />
+                </div>
+
+                <div style={s.field}>
                   <label style={s.fieldLabel}>{t('revenue.payNow')} *</label>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <input style={{ ...s.input, flex: 1 }} type="number" step="0.01" min="0.01"
@@ -424,6 +490,10 @@ const s = {
   },
   sectionTitle: { fontSize: 13, fontWeight: 700, color: '#e8e8f0', margin: 0, textTransform: 'uppercase', letterSpacing: '0.8px' },
   empty: { color: '#5a5a6a', fontSize: 13 },
+  warningBox: { display: 'grid', gap: 10, padding: 14, borderRadius: 12, background: 'rgba(255,214,10,0.10)', border: '1px solid rgba(255,214,10,0.22)' },
+  warningHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#ffd60a', fontSize: 13 },
+  warningList: { display: 'grid', gap: 6 },
+  warningRow: { display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center', color: '#e8e8f0', fontSize: 12 },
 
   barRow: { display: 'grid', gridTemplateColumns: '80px 1fr 90px 36px', alignItems: 'center', gap: 10 },
   barLabel: { fontSize: 12, color: '#8a8a9a', fontWeight: 600 },

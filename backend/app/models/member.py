@@ -6,6 +6,7 @@ import enum
 class MemberStatus(str, enum.Enum):
     active = "active"
     expired = "expired"
+    debtor = "debtor"
     frozen = "frozen"
     canceled = "canceled"
 
@@ -16,7 +17,7 @@ class Member(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     phone = Column(String(20), nullable=False)
-    email = Column(String(100), unique=True, nullable=False)
+    email = Column(String(100), unique=True, nullable=True)
     gender = Column(String(10))
     age = Column(Integer)
     birth_date = Column(Date)
@@ -26,5 +27,6 @@ class Member(Base):
     status = Column(String(20), default=MemberStatus.active.value)
     photo = Column(String(255))
     notes = Column(Text)
+    member_code = Column(String(10), unique=True, nullable=True, index=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
